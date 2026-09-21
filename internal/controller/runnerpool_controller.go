@@ -69,7 +69,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if statusErr := r.Status().Patch(ctx, &pool, client.MergeFrom(before)); statusErr != nil && !apierrors.IsNotFound(statusErr) && err == nil {
 		err = statusErr
 	}
-	return ctrl.Result{RequeueAfter: interval}, err
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: interval}, nil
 }
 
 func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
@@ -97,8 +100,11 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 	if err = r.reader().List(ctx, &workers, client.InNamespace(pool.Namespace), client.MatchingLabels{poolLabel: string(pool.UID)}); err != nil {
 		return err
 	}
-	jobs, err := fj.Jobs(ctx, pool.Spec.Labels)
+	jobs, err := fj.Jobs(ctx, nil)
 	if err != nil {
+		return err
+	}
+	if err = r.sweep(ctx, pool, fj, workers.Items); err != nil {
 		return err
 	}
 	byHandle := map[string]forgejo.Job{}
@@ -109,34 +115,40 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 			pool.Status.WaitingJobs++
 		}
 	}
-	existing := map[string]bool{}
 	pool.Status.ActiveRunners = 0
 	for i := range workers.Items {
 		worker := &workers.Items[i]
-		existing[worker.Annotations[handleAnnotation]] = true
+		remote, found := byHandle[worker.Annotations[handleAnnotation]]
+		if !terminal(worker) {
+			stop, stopErr := r.shouldStop(ctx, pool, worker, remote, found)
+			if stopErr != nil {
+				return stopErr
+			}
+			if stop || (!pool.DeletionTimestamp.IsZero() && ptr.Deref(worker.Spec.Suspend, false)) {
+				done, stopErr := r.stop(ctx, worker)
+				if stopErr != nil {
+					return stopErr
+				}
+				if !done {
+					pool.Status.ActiveRunners++
+					continue
+				}
+			}
+		}
 		if terminal(worker) {
 			if err = r.cleanup(ctx, fj, worker); err != nil {
 				return err
 			}
 			// Retain the attempt record until it is no longer in Forgejo's active list.
-			if _, active := byHandle[worker.Annotations[handleAnnotation]]; !active {
-				if err = r.Delete(ctx, worker, client.PropagationPolicy(metav1.DeletePropagationBackground)); client.IgnoreNotFound(err) != nil {
+			if !found || !pool.DeletionTimestamp.IsZero() || !worker.DeletionTimestamp.IsZero() {
+				if err = r.deleteWorker(ctx, worker); err != nil {
 					return err
 				}
 			}
 			continue
 		}
 		pool.Status.ActiveRunners++
-		if ptr.Deref(worker.Spec.Suspend, false) {
-			if !pool.DeletionTimestamp.IsZero() {
-				if err = r.cleanup(ctx, fj, worker); err != nil {
-					return err
-				}
-				if err = r.Delete(ctx, worker); client.IgnoreNotFound(err) != nil {
-					return err
-				}
-				continue
-			}
+		if ptr.Deref(worker.Spec.Suspend, false) && found && remote.Status == "waiting" {
 			if err = r.provision(ctx, pool, fj, worker); err != nil {
 				return err
 			}
@@ -158,7 +170,7 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		if pool.Status.ActiveRunners >= maximum {
 			break
 		}
-		if job.Status != "waiting" || job.Handle == "" || existing[job.Handle] || !forgejo.Matches(job.RunsOn, pool.Spec.Labels) {
+		if job.Status != "waiting" || job.Handle == "" || !forgejo.Matches(job.RunsOn, pool.Spec.Labels) {
 			continue
 		}
 		// One elected, serial reconciler plus an uncached read makes the Job a
@@ -167,10 +179,11 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		if err = r.reader().List(ctx, &claims, client.MatchingLabels{attemptLabel: attemptKey(pool, job.Handle)}); err != nil {
 			return err
 		}
-		if len(claims.Items) != 0 {
+		attempt := nextAttempt(pool, claims.Items)
+		if attempt == 0 {
 			continue
 		}
-		worker := workerJob(pool, job)
+		worker := retryWorker(pool, job, attempt)
 		if err = controllerutil.SetControllerReference(pool, worker, r.Scheme); err != nil {
 			return err
 		}
@@ -220,9 +233,10 @@ func (r *Reconciler) provision(ctx context.Context, pool *arc.RunnerPool, fj *fo
 	} else if err != nil {
 		return err
 	}
+	before := worker.DeepCopy()
 	worker.Annotations[runnerAnnotation] = secret.Annotations[runnerAnnotation]
 	worker.Spec.Suspend = ptr.To(false)
-	return r.Update(ctx, worker)
+	return r.Patch(ctx, worker, client.MergeFrom(before))
 }
 
 func (r *Reconciler) cleanup(ctx context.Context, fj *forgejo.Client, worker *batchv1.Job) error {
@@ -246,6 +260,19 @@ func (r *Reconciler) cleanup(ctx context.Context, fj *forgejo.Client, worker *ba
 		if err = fj.Delete(ctx, n); err != nil {
 			return err
 		}
+	} else {
+		// Registration may have succeeded immediately before a process crash.
+		runners, listErr := fj.Runners(ctx)
+		if listErr != nil {
+			return listErr
+		}
+		for _, runner := range runners {
+			if runner.Name == worker.Name && runner.Description == "forgejo-arc:"+worker.Labels[poolLabel] {
+				if err = fj.Delete(ctx, runner.ID); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if secret.Name != "" {
 		if err = r.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
@@ -253,6 +280,7 @@ func (r *Reconciler) cleanup(ctx context.Context, fj *forgejo.Client, worker *ba
 		}
 	}
 	worker.Annotations[cleanAnnotation] = "true"
+	controllerutil.RemoveFinalizer(worker, workerFinalizer)
 	return r.Update(ctx, worker)
 }
 

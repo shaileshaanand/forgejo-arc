@@ -39,6 +39,21 @@ the tools your workflows need. The stock image supports shell and Git workflows.
 Pool deletion drains running workers before removing external registrations.
 Keep the credentials Secret available until deletion completes.
 
+Workers have external-registration finalizers. Provisioning recovers a lost
+registration response by deleting the unusable registration before replacing it.
+The controller also sweeps registrations bearing its pool UID when their worker
+record is gone. Startup is bounded by `startupTimeoutSeconds` (default 180), with
+up to `maxAttempts` (default 3) while Forgejo still reports the attempt as waiting.
+Failed attempt records are retained while Forgejo lists the attempt, preventing
+unbounded retries. A new Forgejo workflow attempt starts with a fresh retry budget.
+
+An API outage reports `Ready=False` and backs off; it does not remove active
+workers. Cancellation/disappearance has a 30-second grace period for final logs.
+`jobTimeoutSeconds` bounds each unsuspended worker's lifetime. Running workflows
+are never automatically replayed by this controller: Forgejo determines their
+result and handles workflow reruns. Kubernetes Job success means the runner
+finished, not necessarily that the workflow passed.
+
 ## Minikube end-to-end test
 
 Use the dedicated `forgejo-arc` kubectl context. The fixture is a real Forgejo
@@ -54,6 +69,7 @@ python3 test/e2e/setup.py
 kubectl --context forgejo-arc apply -f config/samples/runnerpool.yaml
 python3 test/e2e/smoke.py
 python3 test/e2e/autoscale.py
+python3 test/e2e/recovery.py
 ```
 
 Setup requires `fj` v0.6 and creates the local test repository `arc/ci`. It stores

@@ -1,0 +1,7 @@
+name: ARC expected failure
+on: [push, workflow_dispatch]
+jobs:
+  failure:
+    runs-on: arc-host
+    steps:
+      - run: exit 42

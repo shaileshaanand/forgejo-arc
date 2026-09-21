@@ -32,6 +32,15 @@ type RunnerPoolSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=1000
 	MaxRunners *int32 `json:"maxRunners,omitempty"`
+	// StartupTimeoutSeconds bounds waiting for a pod to acquire its job.
+	// +kubebuilder:default=180
+	// +kubebuilder:validation:Minimum=10
+	StartupTimeoutSeconds int64 `json:"startupTimeoutSeconds,omitempty"`
+	// MaxAttempts bounds infrastructure retries while Forgejo still reports waiting.
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	MaxAttempts int32 `json:"maxAttempts,omitempty"`
 	// +kubebuilder:default="data.forgejo.org/forgejo/runner:13.0.0"
 	RunnerImage string `json:"runnerImage,omitempty"`
 	// +kubebuilder:default=10

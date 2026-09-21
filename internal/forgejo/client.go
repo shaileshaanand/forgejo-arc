@@ -93,7 +93,12 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 
 func (c *Client) Jobs(ctx context.Context, labels []string) ([]Job, error) {
 	var jobs []Job
-	err := c.request(ctx, http.MethodGet, c.route+"/jobs?labels="+url.QueryEscape(strings.Join(labels, ",")), nil, &jobs)
+	path := c.route + "/jobs"
+	// An absent filter and labels= have different meanings in Forgejo v16.
+	if len(labels) > 0 {
+		path += "?labels=" + url.QueryEscape(strings.Join(labels, ","))
+	}
+	err := c.request(ctx, http.MethodGet, path, nil, &jobs)
 	return jobs, err
 }
 

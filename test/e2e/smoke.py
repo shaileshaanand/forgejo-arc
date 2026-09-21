@@ -12,11 +12,12 @@ import urllib.request
 from setup import ROOT, LOCAL, HOST, K, run
 
 
-def api(path):
+def api(path, method='GET', data=None):
     token = (LOCAL / 'token').read_text().strip()
-    req = urllib.request.Request(HOST + '/api/v1' + path, headers={'Authorization': 'token ' + token})
+    req = urllib.request.Request(HOST + '/api/v1' + path, method=method, data=json.dumps(data).encode() if data is not None else None, headers={'Authorization': 'token ' + token, 'Content-Type':'application/json'})
     with urllib.request.urlopen(req, timeout=20) as response:
-        return json.load(response)
+        body = response.read()
+        return json.loads(body) if body else None
 
 
 def push(workflow='smoke.yaml'):
@@ -25,6 +26,8 @@ def push(workflow='smoke.yaml'):
     if not (repo / '.git').exists():
         run(['git', 'init', '-b', 'main', str(repo)], capture_output=True)
         run(['git', '-C', str(repo), 'remote', 'add', 'origin', HOST + '/arc/ci.git'])
+    else:
+        run(['git', '-C', str(repo), 'remote', 'set-url', 'origin', HOST + '/arc/ci.git'])
     workflows = repo / '.forgejo/workflows'
     workflows.mkdir(parents=True, exist_ok=True)
     for old in workflows.glob('*.yaml'):

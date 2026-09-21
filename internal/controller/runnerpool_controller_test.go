@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	arc "forgejo-arc/api/v1alpha1"
 	"forgejo-arc/internal/forgejo"
@@ -28,12 +29,17 @@ type fixture struct {
 	jobs                     []forgejo.Job
 	registrations, deletions int
 	runners                  []forgejo.Runner
+	unavailable              bool
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{t: t, jobs: []forgejo.Job{{ID: 1, Handle: "first-attempt", Status: "waiting", RunsOn: []string{"linux"}}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if f.unavailable {
+			w.WriteHeader(503)
+			return
+		}
 		switch {
 		case req.Method == "POST":
 			f.registrations++
@@ -186,5 +192,84 @@ func TestZeroPausesAndRerunsUseNewIdentity(t *testing.T) {
 	}
 	if workerName(f.pool, "attempt-1") == workerName(f.pool, "attempt-2") {
 		t.Fatal("reruns must have independent workers")
+	}
+}
+
+func TestRegistrationCrashRecovery(t *testing.T) {
+	f := newFixture(t)
+	worker := workerJob(f.pool, f.jobs[0])
+	if err := f.r.Create(context.Background(), worker); err != nil {
+		t.Fatal(err)
+	}
+	f.registrations = 1
+	f.runners = []forgejo.Runner{{ID: 1, Name: worker.Name, Description: "forgejo-arc:pool-uid"}}
+	f.reconcile()
+	if f.deletions != 1 || f.registrations != 2 {
+		t.Fatalf("unrecoverable registration not replaced: deleted=%d registered=%d", f.deletions, f.registrations)
+	}
+	f.reconcile()
+	if f.registrations != 2 {
+		t.Fatal("restart was not idempotent")
+	}
+}
+
+func TestAPIFailureDoesNotScaleDown(t *testing.T) {
+	f := newFixture(t)
+	f.reconcile()
+	f.unavailable = true
+	_, err := f.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(f.pool)})
+	if err == nil {
+		t.Fatal("outage not reported")
+	}
+	if len(f.workers()) != 1 || f.deletions != 0 {
+		t.Fatal("outage destroyed running work")
+	}
+	f.unavailable = false
+	f.reconcile()
+	if f.registrations != 1 {
+		t.Fatal("outage recovery duplicated runner")
+	}
+}
+
+func TestStartupFailureRetriesAreBounded(t *testing.T) {
+	f := newFixture(t)
+	f.reconcile()
+	for attempt := 1; attempt <= 3; attempt++ {
+		workers := f.workers()
+		for i := range workers {
+			worker := &workers[i]
+			worker.CreationTimestamp = metav1.NewTime(time.Now().Add(-10 * time.Minute))
+			if err := f.r.Update(context.Background(), worker); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f.reconcile()
+	}
+	if f.registrations != 3 {
+		t.Fatalf("wanted 3 attempts, got %d", f.registrations)
+	}
+	for _, worker := range f.workers() {
+		if !terminal(&worker) || worker.Annotations[cleanAnnotation] != "true" {
+			t.Fatal("failed startup leaked active worker or credentials")
+		}
+	}
+}
+
+func TestMissingAttemptGracePeriod(t *testing.T) {
+	f := newFixture(t)
+	f.reconcile()
+	f.jobs = nil
+	f.reconcile()
+	worker := f.workers()[0]
+	if worker.Annotations[missingAnnotation] == "" || terminal(&worker) {
+		t.Fatal("missing attempt must get log-flush grace period")
+	}
+	worker.Annotations[missingAnnotation] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	if err := f.r.Update(context.Background(), &worker); err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile()
+	if len(f.workers()) != 0 || f.deletions != 1 {
+		t.Fatal("cancelled waiting attempt leaked worker")
 	}
 }

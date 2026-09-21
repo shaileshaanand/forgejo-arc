@@ -1,0 +1,7 @@
+name: ARC recovery
+on: [push, workflow_dispatch]
+jobs:
+  slow:
+    runs-on: arc-host
+    steps:
+      - run: sleep 90

@@ -76,6 +76,14 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
+              maxAttempts:
+                default: 3
+                description: MaxAttempts bounds infrastructure retries while Forgejo
+                  still reports waiting.
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
               maxRunners:
                 default: 1
                 description: MaxRunners includes workers which are still starting.
@@ -168,6 +176,13 @@ spec:
                 x-kubernetes-validations:
                 - message: scope is immutable
                   rule: self == oldSelf
+              startupTimeoutSeconds:
+                default: 180
+                description: StartupTimeoutSeconds bounds waiting for a pod to acquire
+                  its job.
+                format: int64
+                minimum: 10
+                type: integer
             required:
             - credentialsSecret
             - forgejoURL
