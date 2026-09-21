@@ -1,0 +1,15 @@
+apiVersion: arc.forgejo.org/v1alpha1
+kind: RunnerPool
+metadata:
+  name: example
+  namespace: forgejo-arc
+spec:
+  forgejoURL: http://forgejo.forgejo-arc.svc.cluster.local:3000
+  scope:
+    type: Repository
+    name: arc/ci
+  credentialsSecret: forgejo-credentials
+  labels: [arc-host]
+  runnerImage: data.forgejo.org/forgejo/runner:13.0.0
+  pollIntervalSeconds: 5
+  jobTimeoutSeconds: 600

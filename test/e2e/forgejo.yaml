@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forgejo-arc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-data
+  namespace: forgejo-arc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo
+  namespace: forgejo-arc
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: forgejo}
+  template:
+    metadata:
+      labels: {app: forgejo}
+    spec:
+      containers:
+        - name: forgejo
+          image: codeberg.org/forgejo/forgejo:16.0.5
+          env:
+            - {name: FORGEJO__database__DB_TYPE, value: sqlite3}
+            - {name: FORGEJO__security__INSTALL_LOCK, value: 'true'}
+            - {name: FORGEJO__server__ROOT_URL, value: 'http://forgejo.forgejo-arc.svc.cluster.local:3000/'}
+            - {name: FORGEJO__server__DISABLE_SSH, value: 'true'}
+            - {name: FORGEJO__service__DISABLE_REGISTRATION, value: 'true'}
+            - {name: FORGEJO__repository__DEFAULT_REPO_UNITS, value: 'repo.code,repo.actions'}
+            - {name: FORGEJO__actions__ENABLED, value: 'true'}
+          ports: [{containerPort: 3000}]
+          readinessProbe:
+            httpGet: {path: /api/v1/version, port: 3000}
+            initialDelaySeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: forgejo-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo
+  namespace: forgejo-arc
+spec:
+  selector: {app: forgejo}
+  ports: [{port: 3000, targetPort: 3000}]

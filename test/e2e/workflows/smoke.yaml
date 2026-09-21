@@ -1,0 +1,11 @@
+name: ARC smoke
+on: [push, workflow_dispatch]
+jobs:
+  smoke:
+    runs-on: arc-host
+    steps:
+      - run: |
+          echo 'Hello from an ephemeral Kubernetes runner'
+          test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
+          test -w /data
+          sleep 5

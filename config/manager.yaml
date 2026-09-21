@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forgejo-arc
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forgejo-arc
+  namespace: forgejo-arc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: forgejo-arc
+rules:
+  - apiGroups: [arc.forgejo.org]
+    resources: [runnerpools, runnerpools/status, runnerpools/finalizers]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: forgejo-arc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: forgejo-arc
+subjects:
+  - kind: ServiceAccount
+    name: forgejo-arc
+    namespace: forgejo-arc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-arc
+  namespace: forgejo-arc
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: forgejo-arc}
+  template:
+    metadata:
+      labels: {app: forgejo-arc}
+    spec:
+      serviceAccountName: forgejo-arc
+      containers:
+        - name: controller
+          image: forgejo-arc:dev
+          imagePullPolicy: IfNotPresent
+          args: [--leader-elect]
+          ports:
+            - {name: metrics, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8081}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8081}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
