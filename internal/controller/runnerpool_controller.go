@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -12,11 +13,13 @@ import (
 	"forgejo-arc/internal/forgejo"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,7 +33,8 @@ type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	// Reader bypasses the informer cache for provisioning decisions.
-	Reader client.Reader
+	Reader   client.Reader
+	Recorder record.EventRecorder
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -48,6 +52,9 @@ func (r *Reconciler) reader() client.Reader {
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var pool arc.RunnerPool
 	if err := r.Get(ctx, req.NamespacedName, &pool); err != nil {
+		if apierrors.IsNotFound(err) {
+			deleteMetrics(req.Namespace, req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	interval := time.Duration(pool.Spec.PollIntervalSeconds) * time.Second
@@ -56,19 +63,44 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	oldStatus := pool.DeepCopy().Status
 	err := r.sync(ctx, &pool)
-	before := pool.DeepCopy()
-	before.Status = oldStatus
 	condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Reconciled", Message: "Watching Forgejo jobs", ObservedGeneration: pool.Generation}
+	if ptr.Deref(pool.Spec.MaxRunners, 1) == 0 {
+		condition.Reason = "Paused"
+		condition.Message = "New work is paused"
+	}
+	if !pool.DeletionTimestamp.IsZero() {
+		condition.Reason = "Draining"
+		condition.Message = "Draining workers before deletion"
+	}
 	if err != nil {
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "ReconcileFailed"
 		condition.Message = err.Error()
 	}
-	meta.SetStatusCondition(&pool.Status.Conditions, condition)
-	pool.Status.ObservedGeneration = pool.Generation
-	if statusErr := r.Status().Patch(ctx, &pool, client.MergeFrom(before)); statusErr != nil && !apierrors.IsNotFound(statusErr) && err == nil {
-		err = statusErr
+	previous := meta.FindStatusCondition(oldStatus.Conditions, "Ready")
+	if err != nil && (previous == nil || previous.Message != condition.Message) {
+		r.event(&pool, corev1.EventTypeWarning, "ReconcileFailed", condition.Message)
 	}
+	meta.SetStatusCondition(&pool.Status.Conditions, condition)
+	degraded := metav1.Condition{Type: "Degraded", Status: metav1.ConditionFalse, Reason: "RetryBudgetAvailable", Message: "No exhausted infrastructure retries", ObservedGeneration: pool.Generation}
+	if pool.Status.ExhaustedJobs > 0 {
+		degraded.Status = metav1.ConditionTrue
+		degraded.Reason = "RetriesExhausted"
+		degraded.Message = fmt.Sprintf("%d waiting jobs exhausted their infrastructure retry budget", pool.Status.ExhaustedJobs)
+		if oldStatus.ExhaustedJobs != pool.Status.ExhaustedJobs {
+			r.event(&pool, corev1.EventTypeWarning, "RetriesExhausted", degraded.Message)
+		}
+	}
+	meta.SetStatusCondition(&pool.Status.Conditions, degraded)
+	pool.Status.ObservedGeneration = pool.Generation
+	// Write a complete status, including zero-valued required counts. A merge
+	// patch from a zero Go struct would omit those fields on a brand-new pool.
+	if !equality.Semantic.DeepEqual(oldStatus, pool.Status) {
+		if statusErr := r.Status().Update(ctx, &pool); statusErr != nil && !apierrors.IsNotFound(statusErr) && err == nil {
+			err = statusErr
+		}
+	}
+	updateMetrics(&pool, err == nil)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -76,14 +108,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
-	if err := validateLabels(pool.Spec.Labels); err != nil {
-		return err
-	}
-	if !controllerutil.ContainsFinalizer(pool, poolFinalizer) && pool.DeletionTimestamp.IsZero() {
-		controllerutil.AddFinalizer(pool, poolFinalizer)
-		if err := r.Update(ctx, pool); err != nil {
-			return err
-		}
+	if !pool.DeletionTimestamp.IsZero() && !controllerutil.ContainsFinalizer(pool, poolFinalizer) {
+		return nil
 	}
 	var credentials corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Namespace: pool.Namespace, Name: pool.Spec.CredentialsSecret}, &credentials); err != nil {
@@ -104,11 +130,23 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 	if err != nil {
 		return err
 	}
+	// Add the finalizer only once credentials and scope are usable. Invalid new
+	// pools must remain deletable; previously provisioned pools retain protection.
+	if !controllerutil.ContainsFinalizer(pool, poolFinalizer) && pool.DeletionTimestamp.IsZero() {
+		if err := validateLabels(pool.Spec.Labels); err != nil {
+			return err
+		}
+		controllerutil.AddFinalizer(pool, poolFinalizer)
+		if err := r.Update(ctx, pool); err != nil {
+			return err
+		}
+	}
 	if err = r.sweep(ctx, pool, fj, workers.Items); err != nil {
 		return err
 	}
 	byHandle := map[string]forgejo.Job{}
 	pool.Status.WaitingJobs = 0
+	pool.Status.ExhaustedJobs = 0
 	for _, job := range jobs {
 		byHandle[job.Handle] = job
 		if job.Status == "waiting" && forgejo.Matches(job.RunsOn, pool.Spec.Labels) {
@@ -162,14 +200,11 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		return nil
 	}
 	maximum := ptr.Deref(pool.Spec.MaxRunners, 1)
-	if pool.Status.ActiveRunners >= maximum {
-		return nil
+	if err := validateLabels(pool.Spec.Labels); err != nil {
+		return err
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
 	for _, job := range jobs {
-		if pool.Status.ActiveRunners >= maximum {
-			break
-		}
 		if job.Status != "waiting" || job.Handle == "" || !forgejo.Matches(job.RunsOn, pool.Spec.Labels) {
 			continue
 		}
@@ -181,6 +216,12 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		}
 		attempt := nextAttempt(pool, claims.Items)
 		if attempt == 0 {
+			if exhausted(pool, claims.Items) {
+				pool.Status.ExhaustedJobs++
+			}
+			continue
+		}
+		if pool.Status.ActiveRunners >= maximum {
 			continue
 		}
 		worker := retryWorker(pool, job, attempt)
@@ -219,7 +260,13 @@ func (r *Reconciler) provision(ctx context.Context, pool *arc.RunnerPool, fj *fo
 		if registerErr != nil {
 			return registerErr
 		}
-		created, buildErr := runnerSecret(pool, worker.Name, runner)
+		snapshotPool := pool.DeepCopy()
+		if snapshot := worker.Annotations[specAnnotation]; snapshot != "" {
+			if err := json.Unmarshal([]byte(snapshot), &snapshotPool.Spec); err != nil {
+				return fmt.Errorf("read worker spec snapshot: %w", err)
+			}
+		}
+		created, buildErr := runnerSecret(snapshotPool, worker.Name, runner)
 		if buildErr != nil {
 			return buildErr
 		}
@@ -233,10 +280,19 @@ func (r *Reconciler) provision(ctx context.Context, pool *arc.RunnerPool, fj *fo
 	} else if err != nil {
 		return err
 	}
+	if !metav1.IsControlledBy(&secret, worker) || secret.Labels[poolLabel] != string(pool.UID) {
+		return fmt.Errorf("worker Secret %s is not owned by this worker", secret.Name)
+	}
 	before := worker.DeepCopy()
 	worker.Annotations[runnerAnnotation] = secret.Annotations[runnerAnnotation]
 	worker.Spec.Suspend = ptr.To(false)
-	return r.Patch(ctx, worker, client.MergeFrom(before))
+	if err := r.Patch(ctx, worker, client.MergeFrom(before)); err != nil {
+		return err
+	}
+	startedCounter.WithLabelValues(pool.Namespace, pool.Name).Inc()
+	r.event(pool, corev1.EventTypeNormal, "WorkerStarted", worker.Name)
+	ctrl.LoggerFrom(ctx).Info("Started ephemeral worker", "worker", worker.Name, "namespace", worker.Namespace)
+	return nil
 }
 
 func (r *Reconciler) cleanup(ctx context.Context, fj *forgejo.Client, worker *batchv1.Job) error {
@@ -248,6 +304,9 @@ func (r *Reconciler) cleanup(ctx context.Context, fj *forgejo.Client, worker *ba
 	err := r.Get(ctx, client.ObjectKeyFromObject(worker), &secret)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
+	}
+	if err == nil && (!metav1.IsControlledBy(&secret, worker) || secret.Labels[poolLabel] != worker.Labels[poolLabel]) {
+		return fmt.Errorf("refusing to delete unowned Secret %s", secret.Name)
 	}
 	if id == "" {
 		id = secret.Annotations[runnerAnnotation]
@@ -291,4 +350,10 @@ func validateLabels(labels []string) error {
 		}
 	}
 	return nil
+}
+
+func (r *Reconciler) event(pool *arc.RunnerPool, kind, reason, message string) {
+	if r.Recorder != nil {
+		r.Recorder.Event(pool, kind, reason, message)
+	}
 }

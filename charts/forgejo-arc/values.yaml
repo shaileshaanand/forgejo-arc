@@ -1,0 +1,14 @@
+replicaCount: 1
+image:
+  repository: forgejo-arc
+  tag: '0.1.0'
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 256Mi}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+metrics:
+  enabled: true

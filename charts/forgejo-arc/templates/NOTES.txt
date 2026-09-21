@@ -1,0 +1,11 @@
+Create a same-namespace Secret with a Forgejo API token, then apply a RunnerPool.
+See config/samples/ and README.md in the forgejo-arc source repository.
+
+Watch pools:
+  kubectl get runnerpools -A
+
+Delete RunnerPools and wait for their finalizers before uninstalling the controller.
+Keep their credentials Secrets available until deletion completes.
+
+CRD upgrades are explicit:
+  kubectl apply -f charts/forgejo-arc/crds/

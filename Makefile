@@ -2,9 +2,11 @@ IMAGE ?= forgejo-arc:dev
 PROFILE ?= forgejo-arc
 KUBECTL ?= kubectl --context=$(PROFILE)
 
-.PHONY: generate test build image install deploy minikube
+.PHONY: generate test build image install deploy minikube e2e chart
 generate:
 	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0 object crd paths=./api/... output:crd:artifacts:config=config/crd
+	mkdir -p charts/forgejo-arc/crds
+	cp config/crd/*.yaml charts/forgejo-arc/crds/
 test:
 	go test -race ./...
 	go vet ./...
@@ -18,3 +20,8 @@ install:
 	$(KUBECTL) apply -f config/crd
 deploy: install
 	$(KUBECTL) apply -f config/manager.yaml
+e2e:
+	bash test/e2e/run.sh
+chart:
+	helm lint charts/forgejo-arc
+	helm template forgejo-arc charts/forgejo-arc >/dev/null

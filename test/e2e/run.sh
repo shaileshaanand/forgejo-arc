@@ -42,8 +42,12 @@ else:
 PY
 python3 test/e2e/setup.py
 "${K[@]}" apply -f config/samples/runnerpool.yaml
+python3 -u test/e2e/validation.py
 python3 -u test/e2e/smoke.py
 python3 -u test/e2e/autoscale.py
 python3 -u test/e2e/recovery.py
 python3 -u test/e2e/pod_loss.py
 python3 -u test/e2e/docker.py
+python3 -u test/e2e/scopes.py
+python3 -u test/e2e/drain.py
+python3 -u test/e2e/helm.py

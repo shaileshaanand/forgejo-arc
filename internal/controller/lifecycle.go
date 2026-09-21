@@ -24,12 +24,15 @@ func (r *Reconciler) stop(ctx context.Context, worker *batchv1.Job) (bool, error
 		}
 	}
 	var pods corev1.PodList
-	if err := r.reader().List(ctx, &pods, client.InNamespace(worker.Namespace), client.MatchingLabels{"batch.kubernetes.io/job-name": worker.Name}); err != nil {
+	if err := r.reader().List(ctx, &pods, client.InNamespace(worker.Namespace), client.MatchingLabels{"batch.kubernetes.io/controller-uid": string(worker.UID)}); err != nil {
 		return false, err
 	}
 	active := false
 	for i := range pods.Items {
 		pod := &pods.Items[i]
+		if !metav1.IsControlledBy(pod, worker) {
+			continue
+		}
 		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
 			continue
 		}
@@ -102,6 +105,27 @@ func nextAttempt(pool *arc.RunnerPool, claims []batchv1.Job) int {
 		}
 	}
 	return len(claims) + 1
+}
+
+func exhausted(pool *arc.RunnerPool, claims []batchv1.Job) bool {
+	maximum := pool.Spec.MaxAttempts
+	if maximum == 0 {
+		maximum = 3
+	}
+	if len(claims) < int(maximum) {
+		return false
+	}
+	for _, worker := range claims {
+		if worker.Labels[poolLabel] != string(pool.UID) || !terminal(&worker) {
+			return false
+		}
+		for _, condition := range worker.Status.Conditions {
+			if condition.Type == batchv1.JobComplete && condition.Status == corev1.ConditionTrue {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (r *Reconciler) sweep(ctx context.Context, pool *arc.RunnerPool, fj *forgejo.Client, workers []batchv1.Job) error {

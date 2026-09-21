@@ -1,0 +1,7 @@
+name: ARC drain
+on: [push, workflow_dispatch]
+jobs:
+  drain:
+    runs-on: arc-drain
+    steps:
+      - run: sleep 20

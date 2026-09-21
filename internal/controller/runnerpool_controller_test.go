@@ -13,6 +13,8 @@ import (
 	"forgejo-arc/internal/forgejo"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -253,6 +255,13 @@ func TestStartupFailureRetriesAreBounded(t *testing.T) {
 			t.Fatal("failed startup leaked active worker or credentials")
 		}
 	}
+	var pool arc.RunnerPool
+	if err := f.r.Get(context.Background(), client.ObjectKeyFromObject(f.pool), &pool); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Status.ExhaustedJobs != 1 || !meta.IsStatusConditionTrue(pool.Status.Conditions, "Degraded") {
+		t.Fatal("exhausted retry budget must be visible in pool status")
+	}
 }
 
 func TestMissingAttemptGracePeriod(t *testing.T) {
@@ -271,5 +280,54 @@ func TestMissingAttemptGracePeriod(t *testing.T) {
 	f.reconcile()
 	if len(f.workers()) != 0 || f.deletions != 1 {
 		t.Fatal("cancelled waiting attempt leaked worker")
+	}
+}
+
+func TestPendingWorkerUsesItsSpecSnapshot(t *testing.T) {
+	f := newFixture(t)
+	f.pool.Spec.NodeSelector = map[string]string{"kubernetes.io/arch": "amd64"}
+	f.pool.Spec.Tolerations = []corev1.Toleration{{Key: "ci", Operator: corev1.TolerationOpExists}}
+	worker := workerJob(f.pool, f.jobs[0])
+	if worker.Spec.Template.Spec.NodeSelector["kubernetes.io/arch"] != "amd64" || len(worker.Spec.Template.Spec.Tolerations) != 1 {
+		t.Fatal("scheduling settings not applied")
+	}
+	if err := f.r.Create(context.Background(), worker); err != nil {
+		t.Fatal(err)
+	}
+	f.pool.Spec.Labels = []string{"changed"}
+	if err := f.r.Update(context.Background(), f.pool); err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile()
+	var secret corev1.Secret
+	if err := f.r.Get(context.Background(), client.ObjectKeyFromObject(worker), &secret); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(secret.Data["config.yaml"]), "linux:host") || strings.Contains(string(secret.Data["config.yaml"]), "changed:host") {
+		t.Fatal("pool update changed a pending worker's backend/labels")
+	}
+}
+
+func TestInvalidNewPoolCanBeDeleted(t *testing.T) {
+	f := newFixture(t)
+	f.pool.Spec.CredentialsSecret = "missing"
+	if err := f.r.Update(context.Background(), f.pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(f.pool)}); err == nil {
+		t.Fatal("missing credentials should fail reconciliation")
+	}
+	var pool arc.RunnerPool
+	if err := f.r.Get(context.Background(), client.ObjectKeyFromObject(f.pool), &pool); err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.Finalizers) != 0 {
+		t.Fatal("invalid unprovisioned pool must not be trapped by finalizer")
+	}
+	if err := f.r.Delete(context.Background(), &pool); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.r.Get(context.Background(), client.ObjectKeyFromObject(f.pool), &pool); !apierrors.IsNotFound(err) {
+		t.Fatal("invalid pool did not delete")
 	}
 }

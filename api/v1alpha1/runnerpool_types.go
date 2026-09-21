@@ -59,14 +59,19 @@ type RunnerPoolSpec struct {
 	// JobTimeoutSeconds bounds the full Kubernetes worker lifetime, including startup.
 	// +kubebuilder:default=3600
 	// +kubebuilder:validation:Minimum=30
-	JobTimeoutSeconds int64                       `json:"jobTimeoutSeconds,omitempty"`
-	Resources         corev1.ResourceRequirements `json:"resources,omitempty"`
+	JobTimeoutSeconds int64                         `json:"jobTimeoutSeconds,omitempty"`
+	Resources         corev1.ResourceRequirements   `json:"resources,omitempty"`
+	NodeSelector      map[string]string             `json:"nodeSelector,omitempty"`
+	Tolerations       []corev1.Toleration           `json:"tolerations,omitempty"`
+	Affinity          *corev1.Affinity              `json:"affinity,omitempty"`
+	ImagePullSecrets  []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 type RunnerPoolStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	ActiveRunners      int32 `json:"activeRunners"`
 	WaitingJobs        int32 `json:"waitingJobs"`
+	ExhaustedJobs      int32 `json:"exhaustedJobs"`
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

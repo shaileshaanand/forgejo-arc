@@ -23,9 +23,11 @@ canonical Forgejo URL in all pools for a server.
 ```sh
 make generate test build
 make minikube
-make image
-minikube -p forgejo-arc image load forgejo-arc:dev
+IMAGE="forgejo-arc:local-$(date +%s)"
+make image IMAGE="$IMAGE"
+minikube -p forgejo-arc image load --daemon "$IMAGE"
 make deploy
+kubectl --context forgejo-arc -n forgejo-arc set image deploy/forgejo-arc "controller=$IMAGE"
 ```
 
 Create a same-namespace Secret named `forgejo-credentials` with a `token` key
@@ -82,10 +84,58 @@ are never automatically replayed by this controller: Forgejo determines their
 result and handles workflow reruns. Kubernetes Job success means the runner
 finished, not necessarily that the workflow passed.
 
+Worker settings support `resources`, `dockerResources`, `nodeSelector`,
+`tolerations`, `affinity`, and `imagePullSecrets`. Each worker keeps a snapshot of
+its pool configuration, so later changes apply to newly created workers. Image
+pull Secrets are same-namespace Kubernetes image credentials; credentials for
+private images pulled by the nested Docker daemon are configured by the workflow.
+
+## Helm installation
+
+Build and load the controller image as above, then use Helm instead of the raw
+manager manifest for a fresh installation:
+
+```sh
+helm upgrade --install forgejo-arc charts/forgejo-arc \
+  --namespace forgejo-arc --create-namespace \
+  --set image.repository=forgejo-arc --set-string image.tag="${IMAGE#forgejo-arc:}" \
+  --wait
+```
+
+For a remote cluster, set `image.repository` and `image.tag` to an image available
+to its nodes. The chart can run multiple controller replicas with one elected
+leader. Install one release per cluster. CRDs are included for installation;
+before upgrading the chart, apply `charts/forgejo-arc/crds/` explicitly because
+Helm does not upgrade CRDs in its `crds/` directory.
+
+Before uninstalling, delete RunnerPools and wait for draining/finalizers while
+the controller and their credential Secrets are still available. Then uninstall
+the Helm release. Helm retains the CRD.
+
+### Status and metrics
+
+`kubectl describe runnerpool NAME` shows `Ready`, `Degraded`, active runners,
+waiting jobs, exhausted jobs, and provisioning/error Events. `Ready=False`
+includes the API or configuration error. `Degraded=True/Reason=RetriesExhausted`
+means a waiting attempt exhausted its startup retry budget. Fix the image or
+scheduling settings, then increase `maxAttempts` or cancel/rerun the workflow.
+
+The chart exposes a ClusterIP metrics service on port 8080. Prometheus metrics
+include `forgejo_arc_active_runners`, `forgejo_arc_waiting_jobs`,
+`forgejo_arc_exhausted_jobs`, `forgejo_arc_pool_ready`, and
+`forgejo_arc_workers_started_total`, labelled by namespace and pool. Scrape each
+controller pod; pool metrics are emitted by the active leader. Standard
+controller-runtime reconciliation, workqueue, process, and Go metrics are also
+available. Workflow results remain authoritative in Forgejo.
+
 ## Minikube end-to-end test
 
 Use the dedicated `forgejo-arc` kubectl context. The fixture is a real Forgejo
 16.0.5 server with SQLite and a PVC, not a mocked API.
+
+`make e2e` provisions the cluster, builds a uniquely tagged image, and runs the
+full suite including Helm lifecycle checks. It leaves the cluster available for
+inspection. To run tests individually:
 
 ```sh
 kubectl --context forgejo-arc apply -f test/e2e/forgejo.yaml
@@ -98,8 +148,11 @@ kubectl --context forgejo-arc apply -f config/samples/runnerpool.yaml
 python3 test/e2e/smoke.py
 python3 test/e2e/autoscale.py
 python3 test/e2e/recovery.py
+python3 test/e2e/pod_loss.py
 python3 test/e2e/docker.py
 python3 test/e2e/scopes.py
+python3 test/e2e/drain.py
+python3 test/e2e/helm.py
 ```
 
 Setup requires `fj` v0.6 and creates the local test repository `arc/ci`. It stores

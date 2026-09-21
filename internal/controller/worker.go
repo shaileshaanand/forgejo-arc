@@ -2,6 +2,7 @@ package controller
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ const (
 	stoppingAnnotation = "arc.forgejo.org/stopping"
 	missingAnnotation  = "arc.forgejo.org/missing-since"
 	workerFinalizer    = "arc.forgejo.org/registration"
+	specAnnotation     = "arc.forgejo.org/spec-snapshot"
 )
 
 func workerName(pool *arc.RunnerPool, handle string) string {
@@ -39,6 +41,7 @@ func attemptKey(pool *arc.RunnerPool, handle string) string {
 }
 
 func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
+	snapshot, _ := json.Marshal(pool.Spec)
 	name := workerName(pool, job.Handle)
 	labels := map[string]string{poolLabel: string(pool.UID), attemptLabel: attemptKey(pool, job.Handle)}
 	image := pool.Spec.RunnerImage
@@ -54,7 +57,7 @@ func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
 		resources.Requests = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")}
 	}
 	worker := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: pool.Namespace, Labels: labels, Finalizers: []string{workerFinalizer}, Annotations: map[string]string{handleAnnotation: job.Handle}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: pool.Namespace, Labels: labels, Finalizers: []string{workerFinalizer}, Annotations: map[string]string{handleAnnotation: job.Handle, specAnnotation: string(snapshot)}},
 		Spec: batchv1.JobSpec{
 			Suspend: ptr.To(true), BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(deadline),
 			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
@@ -71,6 +74,11 @@ func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
 			}},
 		},
 	}
+	settings := pool.Spec.DeepCopy()
+	worker.Spec.Template.Spec.NodeSelector = settings.NodeSelector
+	worker.Spec.Template.Spec.Tolerations = settings.Tolerations
+	worker.Spec.Template.Spec.Affinity = settings.Affinity
+	worker.Spec.Template.Spec.ImagePullSecrets = settings.ImagePullSecrets
 	if pool.Spec.Mode == "Docker" {
 		addDocker(pool, &worker.Spec.Template.Spec)
 	}

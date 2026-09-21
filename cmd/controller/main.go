@@ -26,7 +26,7 @@ func main() {
 	must(arc.AddToScheme(scheme))
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, LeaderElection: leader, LeaderElectionID: "forgejo-arc.arc.forgejo.org", HealthProbeBindAddress: ":8081", Metrics: metricsserver.Options{BindAddress: ":8080"}})
 	must(err)
-	must((&controller.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Scheme: scheme}).SetupWithManager(mgr))
+	must((&controller.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Scheme: scheme, Recorder: mgr.GetEventRecorderFor("forgejo-arc")}).SetupWithManager(mgr))
 	must(mgr.AddHealthzCheck("healthz", healthz.Ping))
 	must(mgr.AddReadyzCheck("readyz", healthz.Ping))
 	must(mgr.Start(ctrl.SetupSignalHandler()))
