@@ -20,6 +20,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	controllerpkg "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -28,10 +29,20 @@ const poolFinalizer = "arc.forgejo.org/runners"
 type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// Reader bypasses the informer cache for provisioning decisions.
+	Reader client.Reader
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&arc.RunnerPool{}).Owns(&batchv1.Job{}).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).For(&arc.RunnerPool{}).Owns(&batchv1.Job{}).
+		WithOptions(controllerpkg.Options{MaxConcurrentReconciles: 1}).Complete(r)
+}
+
+func (r *Reconciler) reader() client.Reader {
+	if r.Reader != nil {
+		return r.Reader
+	}
+	return r.Client
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -83,7 +94,7 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		return err
 	}
 	var workers batchv1.JobList
-	if err = r.List(ctx, &workers, client.InNamespace(pool.Namespace), client.MatchingLabels{poolLabel: string(pool.UID)}); err != nil {
+	if err = r.reader().List(ctx, &workers, client.InNamespace(pool.Namespace), client.MatchingLabels{poolLabel: string(pool.UID)}); err != nil {
 		return err
 	}
 	jobs, err := fj.Jobs(ctx, pool.Spec.Labels)
@@ -138,12 +149,25 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 		}
 		return nil
 	}
-	if pool.Status.ActiveRunners >= 1 {
+	maximum := ptr.Deref(pool.Spec.MaxRunners, 1)
+	if pool.Status.ActiveRunners >= maximum {
 		return nil
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
 	for _, job := range jobs {
+		if pool.Status.ActiveRunners >= maximum {
+			break
+		}
 		if job.Status != "waiting" || job.Handle == "" || existing[job.Handle] || !forgejo.Matches(job.RunsOn, pool.Spec.Labels) {
+			continue
+		}
+		// One elected, serial reconciler plus an uncached read makes the Job a
+		// durable claim shared by overlapping pools, including other namespaces.
+		var claims batchv1.JobList
+		if err = r.reader().List(ctx, &claims, client.MatchingLabels{attemptLabel: attemptKey(pool, job.Handle)}); err != nil {
+			return err
+		}
+		if len(claims.Items) != 0 {
 			continue
 		}
 		worker := workerJob(pool, job)
@@ -154,14 +178,16 @@ func (r *Reconciler) sync(ctx context.Context, pool *arc.RunnerPool) error {
 			return client.IgnoreAlreadyExists(err)
 		}
 		pool.Status.ActiveRunners++
-		return r.provision(ctx, pool, fj, worker)
+		if err = r.provision(ctx, pool, fj, worker); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 func (r *Reconciler) provision(ctx context.Context, pool *arc.RunnerPool, fj *forgejo.Client, worker *batchv1.Job) error {
 	var secret corev1.Secret
-	err := r.Get(ctx, client.ObjectKeyFromObject(worker), &secret)
+	err := r.reader().Get(ctx, client.ObjectKeyFromObject(worker), &secret)
 	if apierrors.IsNotFound(err) {
 		// A crash after registration but before Secret persistence loses the token.
 		// Remove that registration by its unique worker identity before replacing it.

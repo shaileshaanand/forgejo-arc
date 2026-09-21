@@ -8,6 +8,16 @@ Kubernetes Job for each matching job attempt. The runner uses `one-job --handle`
 to request that exact attempt. Credentials are unique to each worker. Idle pools
 have no runner pods.
 
+`spec.maxRunners` defaults to 1 and bounds starting and running workers together.
+Set it to 0 to pause new work; existing workers drain. Increasing it enables
+parallel matrix jobs. Workflow reruns use new attempt handles and new workers.
+
+Install one controller per cluster (multiple replicas share its leader-election
+lock). Reconciliation is serialized and uses uncached Kubernetes reads to claim
+attempts across pools/namespaces. Overlapping pools can share demand: an existing
+worker claim prevents another pool from launching the same attempt. Use the same
+canonical Forgejo URL in all pools for a server.
+
 ## Development
 
 ```sh
@@ -43,6 +53,7 @@ kubectl --context forgejo-arc -n forgejo-arc port-forward svc/forgejo 3000:3000
 python3 test/e2e/setup.py
 kubectl --context forgejo-arc apply -f config/samples/runnerpool.yaml
 python3 test/e2e/smoke.py
+python3 test/e2e/autoscale.py
 ```
 
 Setup requires `fj` v0.6 and creates the local test repository `arc/ci`. It stores

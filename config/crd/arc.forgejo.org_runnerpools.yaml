@@ -76,6 +76,14 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set
+              maxRunners:
+                default: 1
+                description: MaxRunners includes workers which are still starting.
+                  Zero pauses new work.
+                format: int32
+                maximum: 1000
+                minimum: 0
+                type: integer
               pollIntervalSeconds:
                 default: 10
                 format: int32

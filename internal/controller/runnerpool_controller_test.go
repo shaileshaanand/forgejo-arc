@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -136,5 +137,54 @@ func TestFailedWorkerDoesNotReplayActiveAttempt(t *testing.T) {
 	f.reconcile()
 	if f.registrations != 1 {
 		t.Fatal("replayed a running attempt")
+	}
+}
+
+func TestConcurrencyAndOverlappingPools(t *testing.T) {
+	f := newFixture(t)
+	f.pool.Spec.MaxRunners = ptr.To(int32(2))
+	if err := f.r.Update(context.Background(), f.pool); err != nil {
+		t.Fatal(err)
+	}
+	f.jobs = append(f.jobs, forgejo.Job{ID: 2, Handle: "second", Status: "waiting", RunsOn: []string{"linux"}}, forgejo.Job{ID: 3, Handle: "third", Status: "waiting", RunsOn: []string{"linux"}})
+	f.reconcile()
+	f.reconcile()
+	if len(f.workers()) != 2 {
+		t.Fatal("concurrency was not bounded at two")
+	}
+	other := f.pool.DeepCopy()
+	other.Name = "overlap"
+	other.Namespace = "other"
+	other.UID = "other-pool"
+	other.ResourceVersion = ""
+	other.Spec.MaxRunners = ptr.To(int32(5))
+	if err := f.r.Create(context.Background(), other); err != nil {
+		t.Fatal(err)
+	}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "credentials", Namespace: "other"}, Data: map[string][]byte{"token": []byte("controller-token")}}
+	if err := f.r.Create(context.Background(), secret); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(other)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.workers()) != 3 || f.registrations != 3 {
+		t.Fatal("overlapping pools duplicated an attempt")
+	}
+}
+
+func TestZeroPausesAndRerunsUseNewIdentity(t *testing.T) {
+	f := newFixture(t)
+	f.pool.Spec.MaxRunners = ptr.To(int32(0))
+	if err := f.r.Update(context.Background(), f.pool); err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile()
+	if len(f.workers()) != 0 {
+		t.Fatal("paused pool started work")
+	}
+	if workerName(f.pool, "attempt-1") == workerName(f.pool, "attempt-2") {
+		t.Fatal("reruns must have independent workers")
 	}
 }

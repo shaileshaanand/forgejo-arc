@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strconv"
+	"strings"
 
 	arc "forgejo-arc/api/v1alpha1"
 	"forgejo-arc/internal/forgejo"
@@ -17,6 +18,7 @@ import (
 
 const (
 	poolLabel        = "arc.forgejo.org/pool-uid"
+	attemptLabel     = "arc.forgejo.org/attempt"
 	handleAnnotation = "arc.forgejo.org/handle"
 	runnerAnnotation = "arc.forgejo.org/runner-id"
 	cleanAnnotation  = "arc.forgejo.org/cleaned"
@@ -27,9 +29,14 @@ func workerName(pool *arc.RunnerPool, handle string) string {
 	return fmt.Sprintf("arc-%x", sum[:16])
 }
 
+func attemptKey(pool *arc.RunnerPool, handle string) string {
+	sum := sha256.Sum256([]byte(strings.TrimRight(pool.Spec.ForgejoURL, "/") + "/" + handle))
+	return fmt.Sprintf("%x", sum[:24])
+}
+
 func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
 	name := workerName(pool, job.Handle)
-	labels := map[string]string{poolLabel: string(pool.UID)}
+	labels := map[string]string{poolLabel: string(pool.UID), attemptLabel: attemptKey(pool, job.Handle)}
 	image := pool.Spec.RunnerImage
 	if image == "" {
 		image = "data.forgejo.org/forgejo/runner:13.0.0"

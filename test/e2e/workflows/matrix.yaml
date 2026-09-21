@@ -1,0 +1,12 @@
+name: ARC matrix
+on: [push, workflow_dispatch]
+jobs:
+  matrix:
+    runs-on: arc-host
+    strategy:
+      matrix:
+        number: [1, 2, 3, 4, 5]
+    steps:
+      - run: |
+          echo 'Matrix worker ${{ matrix.number }}'
+          sleep 15

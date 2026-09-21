@@ -27,6 +27,11 @@ type RunnerPoolSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +listType=set
 	Labels []string `json:"labels"`
+	// MaxRunners includes workers which are still starting. Zero pauses new work.
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000
+	MaxRunners *int32 `json:"maxRunners,omitempty"`
 	// +kubebuilder:default="data.forgejo.org/forgejo/runner:13.0.0"
 	RunnerImage string `json:"runnerImage,omitempty"`
 	// +kubebuilder:default=10
