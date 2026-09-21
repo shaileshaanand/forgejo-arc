@@ -53,7 +53,7 @@ func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
 	if resources.Requests == nil {
 		resources.Requests = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")}
 	}
-	return &batchv1.Job{
+	worker := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: pool.Namespace, Labels: labels, Finalizers: []string{workerFinalizer}, Annotations: map[string]string{handleAnnotation: job.Handle}},
 		Spec: batchv1.JobSpec{
 			Suspend: ptr.To(true), BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(deadline),
@@ -71,12 +71,23 @@ func workerJob(pool *arc.RunnerPool, job forgejo.Job) *batchv1.Job {
 			}},
 		},
 	}
+	if pool.Spec.Mode == "Docker" {
+		addDocker(pool, &worker.Spec.Template.Spec)
+	}
+	return worker
 }
 
 func runnerSecret(pool *arc.RunnerPool, name string, runner forgejo.Runner) (*corev1.Secret, error) {
 	labels := make([]string, len(pool.Spec.Labels))
 	for i, label := range pool.Spec.Labels {
 		labels[i] = label + ":host"
+		if pool.Spec.Mode == "Docker" {
+			image := pool.Spec.JobImage
+			if image == "" {
+				image = "docker.io/library/node:22-bookworm-slim"
+			}
+			labels[i] = label + ":docker://" + image
+		}
 	}
 	timeout := pool.Spec.JobTimeoutSeconds
 	if timeout == 0 {
@@ -87,6 +98,9 @@ func runnerSecret(pool *arc.RunnerPool, name string, runner forgejo.Runner) (*co
 		"cache":  map[string]any{"enabled": false},
 		"host":   map[string]any{"workdir_parent": "/data/work"},
 		"server": map[string]any{"connections": map[string]any{"forgejo": map[string]any{"url": pool.Spec.ForgejoURL, "uuid": runner.UUID, "token": runner.Token, "labels": labels}}},
+	}
+	if pool.Spec.Mode == "Docker" {
+		config["container"] = map[string]any{"docker_host": "-"}
 	}
 	data, err := yaml.Marshal(config)
 	if err != nil {

@@ -36,6 +36,20 @@ owner access and a token with `write:repository` permission. Configure and apply
 Host-mode steps run inside the runner container. Choose a runner image containing
 the tools your workflows need. The stock image supports shell and Git workflows.
 
+### Docker workflows
+
+Set `mode: Docker` and use `config/samples/docker-pool.yaml`. Each worker gets a
+private Docker-in-Docker native sidecar with an ephemeral Docker data directory.
+The runner waits for `docker info` to succeed before starting. Kubernetes stops
+the sidecar when the runner exits, allowing the Job to complete normally.
+
+This supports workflow `container:`, service containers, Docker actions, and
+JavaScript actions using a Node-capable `jobImage`. The Docker daemon runs
+privileged and listens on pod loopback; the runner itself stays non-root. This
+mode requires nodes that permit privileged pods and Kubernetes native sidecars
+(stable in 1.33). Configure `dockerResources` to budget the daemon and nested
+workflow containers. No node Docker socket or host directory is mounted.
+
 Pool deletion drains running workers before removing external registrations.
 Keep the credentials Secret available until deletion completes.
 
@@ -70,6 +84,7 @@ kubectl --context forgejo-arc apply -f config/samples/runnerpool.yaml
 python3 test/e2e/smoke.py
 python3 test/e2e/autoscale.py
 python3 test/e2e/recovery.py
+python3 test/e2e/docker.py
 ```
 
 Setup requires `fj` v0.6 and creates the local test repository `arc/ci`. It stores

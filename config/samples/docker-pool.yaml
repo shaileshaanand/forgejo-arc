@@ -1,0 +1,17 @@
+apiVersion: arc.forgejo.org/v1alpha1
+kind: RunnerPool
+metadata:
+  name: docker
+  namespace: forgejo-arc
+spec:
+  forgejoURL: http://forgejo.forgejo-arc.svc.cluster.local:3000
+  scope: {type: Repository, name: arc/ci}
+  credentialsSecret: forgejo-credentials
+  labels: [arc-docker]
+  maxRunners: 1
+  mode: Docker
+  jobImage: docker.io/library/node:22-bookworm-slim
+  dockerImage: docker.io/library/docker:28.5.2-dind
+  startupTimeoutSeconds: 300
+  jobTimeoutSeconds: 900
+  pollIntervalSeconds: 5

@@ -82,6 +82,7 @@ func (in *RunnerPoolSpec) DeepCopyInto(out *RunnerPoolSpec) {
 		*out = new(int32)
 		**out = **in
 	}
+	in.DockerResources.DeepCopyInto(&out.DockerResources)
 	in.Resources.DeepCopyInto(&out.Resources)
 }
 

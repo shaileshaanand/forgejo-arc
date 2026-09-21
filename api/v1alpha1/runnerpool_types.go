@@ -43,6 +43,15 @@ type RunnerPoolSpec struct {
 	MaxAttempts int32 `json:"maxAttempts,omitempty"`
 	// +kubebuilder:default="data.forgejo.org/forgejo/runner:13.0.0"
 	RunnerImage string `json:"runnerImage,omitempty"`
+	// +kubebuilder:default=Host
+	// +kubebuilder:validation:Enum=Host;Docker
+	Mode string `json:"mode,omitempty"`
+	// JobImage is the default workflow image in Docker mode.
+	// +kubebuilder:default="docker.io/library/node:22-bookworm-slim"
+	JobImage string `json:"jobImage,omitempty"`
+	// +kubebuilder:default="docker.io/library/docker:28.5.2-dind"
+	DockerImage     string                      `json:"dockerImage,omitempty"`
+	DockerResources corev1.ResourceRequirements `json:"dockerResources,omitempty"`
 	// +kubebuilder:default=10
 	// +kubebuilder:validation:Minimum=1
 	PollIntervalSeconds int32 `json:"pollIntervalSeconds,omitempty"`

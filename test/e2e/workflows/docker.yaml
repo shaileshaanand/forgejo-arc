@@ -1,0 +1,22 @@
+name: ARC Docker
+on: [push, workflow_dispatch]
+jobs:
+  service-and-action:
+    runs-on: arc-docker
+    container: docker.io/library/alpine:3.22
+    services:
+      web:
+        image: docker.io/library/nginx:1.28-alpine
+    steps:
+      - name: Reach service container
+        run: wget -qO- http://web | grep 'Welcome to nginx'
+      - name: Reach Forgejo from nested container
+        run: wget -qO- http://forgejo.forgejo-arc.svc.cluster.local:3000/api/v1/version | grep '16.0.5'
+      - name: Docker action
+        uses: docker://docker.io/library/alpine:3.22
+        with:
+          args: echo Docker-action-completed
+  default-image:
+    runs-on: arc-docker
+    steps:
+      - run: node --version
