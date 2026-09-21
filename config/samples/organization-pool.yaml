@@ -1,0 +1,11 @@
+apiVersion: arc.forgejo.org/v1alpha1
+kind: RunnerPool
+metadata:
+  name: organization
+  namespace: forgejo-arc
+spec:
+  forgejoURL: https://forgejo.example.com
+  scope: {type: Organization, name: my-team}
+  credentialsSecret: organization-credentials
+  labels: [team-linux]
+  maxRunners: 5

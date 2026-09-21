@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -39,13 +40,44 @@ func New(base, token, scopeType, name string) (*Client, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("forgejoURL must be an HTTP(S) URL without credentials, query, or fragment")
 	}
-	parts := strings.Split(name, "/")
-	if scopeType != "Repository" || len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("scope must be Repository with name owner/repository")
+	route, err := scopeRoute(scopeType, name)
+	if err != nil {
+		return nil, err
 	}
-	route := "/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/actions/runners"
 	return &Client{base: strings.TrimRight(base, "/") + "/api/v1", token: token, route: route,
 		http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
+var scopeName = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`)
+
+func scopeRoute(kind, name string) (string, error) {
+	var route string
+	switch kind {
+	case "Repository":
+		parts := strings.Split(name, "/")
+		if len(parts) != 2 || !scopeName.MatchString(parts[0]) || !scopeName.MatchString(parts[1]) {
+			return "", fmt.Errorf("Repository scope requires name owner/repository")
+		}
+		route = "/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1])
+	case "Organization":
+		if !scopeName.MatchString(name) {
+			return "", fmt.Errorf("Organization scope requires an organization name")
+		}
+		route = "/orgs/" + url.PathEscape(name)
+	case "User":
+		if name != "" {
+			return "", fmt.Errorf("User scope uses the authenticated user; omit name")
+		}
+		route = "/user"
+	case "Instance":
+		if name != "" {
+			return "", fmt.Errorf("Instance scope must omit name")
+		}
+		route = "/admin"
+	default:
+		return "", fmt.Errorf("unsupported runner scope %q", kind)
+	}
+	return route + "/actions/runners", nil
 }
 
 // APIError deliberately excludes response bodies, which may contain credentials.

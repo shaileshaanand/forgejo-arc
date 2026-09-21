@@ -111,3 +111,22 @@ func TestRunnerPaginationHandlesServerPageCap(t *testing.T) {
 		t.Fatalf("pagination dropped runners: %v %v", runners, err)
 	}
 }
+
+func TestScopeRoutes(t *testing.T) {
+	for _, test := range []struct{ kind, name, want string }{
+		{"Repository", "owner/repo", "/repos/owner/repo/actions/runners"},
+		{"Organization", "team", "/orgs/team/actions/runners"},
+		{"User", "", "/user/actions/runners"},
+		{"Instance", "", "/admin/actions/runners"},
+	} {
+		c, err := New("https://forgejo.example/subpath/", "token", test.kind, test.name)
+		if err != nil || c.route != test.want || c.base != "https://forgejo.example/subpath/api/v1" {
+			t.Fatalf("%s: %v %v", test.kind, c, err)
+		}
+	}
+	for _, test := range []struct{ kind, name string }{{"User", "someone"}, {"Instance", "global"}, {"Repository", "../repo"}, {"Organization", "a/b"}, {"Unknown", ""}} {
+		if _, err := New("https://forgejo.example", "token", test.kind, test.name); err == nil {
+			t.Fatalf("invalid scope accepted: %v", test)
+		}
+	}
+}

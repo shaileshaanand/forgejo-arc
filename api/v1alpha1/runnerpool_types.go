@@ -6,11 +6,12 @@ import (
 )
 
 type Scope struct {
-	// +kubebuilder:validation:Enum=Repository
+	// +kubebuilder:validation:Enum=Repository;Organization;User;Instance
 	Type string `json:"type"`
-	// Name is owner/repository for repository scope.
+	// Name is owner/repository for Repository, an organization for Organization,
+	// and omitted for User (authenticated user) or Instance.
 	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 }
 
 type RunnerPoolSpec struct {

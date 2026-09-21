@@ -33,6 +33,20 @@ containing a Forgejo personal access token. Repository scope requires repository
 owner access and a token with `write:repository` permission. Configure and apply
 `config/samples/runnerpool.yaml`. Use `runs-on: arc-host` in workflows.
 
+### Runner scopes
+
+| `scope.type` | `scope.name` | Token permission and account access |
+| --- | --- | --- |
+| `Repository` | `owner/repository` | `write:repository`; repository owner |
+| `Organization` | Organization name | `write:organization`; organization owner |
+| `User` | Omit | `write:user`; authenticated user's repositories |
+| `Instance` | Omit | `write:admin`; instance administrator |
+
+Forgejo URL and scope are immutable. Create a new pool to change either. Credentials
+can be rotated by updating the referenced Secret. The test fixture uses an admin
+token with all scopes to exercise every endpoint; deployed pools can use the
+scope-specific permissions above.
+
 Host-mode steps run inside the runner container. Choose a runner image containing
 the tools your workflows need. The stock image supports shell and Git workflows.
 
@@ -85,6 +99,7 @@ python3 test/e2e/smoke.py
 python3 test/e2e/autoscale.py
 python3 test/e2e/recovery.py
 python3 test/e2e/docker.py
+python3 test/e2e/scopes.py
 ```
 
 Setup requires `fj` v0.6 and creates the local test repository `arc/ci`. It stores

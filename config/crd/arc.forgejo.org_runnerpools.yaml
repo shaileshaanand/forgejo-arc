@@ -234,15 +234,19 @@ spec:
               scope:
                 properties:
                   name:
-                    description: Name is owner/repository for repository scope.
+                    description: |-
+                      Name is owner/repository for Repository, an organization for Organization,
+                      and omitted for User (authenticated user) or Instance.
                     minLength: 1
                     type: string
                   type:
                     enum:
                     - Repository
+                    - Organization
+                    - User
+                    - Instance
                     type: string
                 required:
-                - name
                 - type
                 type: object
                 x-kubernetes-validations:

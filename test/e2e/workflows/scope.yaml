@@ -1,0 +1,7 @@
+name: ARC scope
+on: [push, workflow_dispatch]
+jobs:
+  scope:
+    runs-on: arc-scope
+    steps:
+      - run: echo 'Scoped runner passed'

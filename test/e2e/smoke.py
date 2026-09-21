@@ -20,14 +20,14 @@ def api(path, method='GET', data=None):
         return json.loads(body) if body else None
 
 
-def push(workflow='smoke.yaml'):
-    repo = LOCAL / 'ci'
+def push(workflow='smoke.yaml', repo_name='arc/ci'):
+    repo = LOCAL / ('ci' if repo_name == 'arc/ci' else repo_name.replace('/', '-'))
     repo.mkdir(exist_ok=True)
     if not (repo / '.git').exists():
         run(['git', 'init', '-b', 'main', str(repo)], capture_output=True)
-        run(['git', '-C', str(repo), 'remote', 'add', 'origin', HOST + '/arc/ci.git'])
+        run(['git', '-C', str(repo), 'remote', 'add', 'origin', HOST + '/' + repo_name + '.git'])
     else:
-        run(['git', '-C', str(repo), 'remote', 'set-url', 'origin', HOST + '/arc/ci.git'])
+        run(['git', '-C', str(repo), 'remote', 'set-url', 'origin', HOST + '/' + repo_name + '.git'])
     workflows = repo / '.forgejo/workflows'
     workflows.mkdir(parents=True, exist_ok=True)
     for old in workflows.glob('*.yaml'):
@@ -42,10 +42,10 @@ def push(workflow='smoke.yaml'):
     return run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True).stdout.strip()
 
 
-def wait_result(commit, expected='success', limit=300):
+def wait_result(commit, expected='success', limit=300, repo_name='arc/ci'):
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
-        runs = api('/repos/arc/ci/actions/runs')['workflow_runs']
+        runs = api('/repos/' + repo_name + '/actions/runs')['workflow_runs']
         for workflow in runs:
             if workflow['commit_sha'] == commit and workflow['status'] in ('success','failure','cancelled','skipped'):
                 assert workflow['status'] == expected, workflow
