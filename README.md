@@ -115,8 +115,23 @@ private images pulled by the nested Docker daemon are configured by the workflow
 
 ## Helm installation
 
-Build and load the controller image as above, then use Helm instead of the raw
-manager manifest for a fresh installation:
+Install the published OCI chart for a fresh installation:
+
+```sh
+helm upgrade --install forgejo-arc \
+  oci://git.shailesh.live/shailesh/charts/forgejo-arc \
+  --version 0.1.0 \
+  --namespace forgejo-arc --create-namespace \
+  --wait
+```
+
+Chart `0.1.0` defaults to controller image
+`git.shailesh.live/shailesh/forgejo-arc:fccaf1a`. For private packages, log in with
+`helm registry login git.shailesh.live` to download the chart and configure
+`imagePullSecrets` for Kubernetes to pull the controller image.
+
+For local development, build and load the controller image as above, then use
+the local chart instead of the raw manager manifest:
 
 ```sh
 helm upgrade --install forgejo-arc charts/forgejo-arc \
