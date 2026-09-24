@@ -125,7 +125,9 @@ JavaScript actions using a Node-capable `jobImage`. The Docker daemon runs
 privileged and listens on pod loopback; the runner itself stays non-root. This
 mode requires nodes that permit privileged pods and Kubernetes native sidecars
 (stable in 1.33). Configure `dockerResources` to budget the daemon and nested
-workflow containers. No node Docker socket or host directory is mounted.
+workflow containers. The DinD default bridge and workflow-created networks
+inherit the worker pod's MTU, avoiding TLS stalls on overlay networks such as
+Flannel VXLAN. No node Docker socket or host directory is mounted.
 
 Pool deletion drains running workers before removing external registrations.
 Keep the credentials Secret available until deletion completes.

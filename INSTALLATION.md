@@ -995,6 +995,7 @@ secret controller does not restore the previous value.
 | Kubernetes `ImagePullBackOff` | Correct controller/pool `imagePullSecrets` and image tag; nested Docker pulls use separate workflow credentials |
 | Docker command missing | Install Docker CLI in the job image/workflow; `dockerSocket` supplies a daemon connection, not a CLI binary |
 | Docker daemon inaccessible in steps | Use Docker mode and `dockerSocket: true` on chart/controller 0.1.1+; inspect sidecar logs and `/var/run/docker.sock` |
+| Downloads hang during TLS inside workflow containers | Compare pod and nested network MTUs. Controller builds including commit `57140cc` match DinD's default and workflow-created bridge MTUs to the pod interface; upgrade older controllers on VXLAN networks. |
 | Build OOM or slow | Size `dockerResources`, including nested services/BuildKit; CPU limits throttle; inspect pod/container termination status |
 | Argo CD cannot fetch chart | Repository Secret in `argocd`, `type: helm`, `enableOCI: 'true'`, correct username/PAT, URL without `oci://` |
 | Argo CD cannot create pools | Chart CRD included, cluster RBAC allowed by AppProject and Argo CD credentials, destination Secrets present |
