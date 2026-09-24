@@ -22,15 +22,15 @@ canonical Forgejo URL in all pools for a server.
 
 ### Published controller image
 
-The [container workflow](.forgejo/workflows/publish.yaml) runs on `dind` and
+The [container workflow](.forgejo/workflows/publish.yaml) runs on `arc-minikube` and
 publishes to `git.shailesh.live/shailesh/forgejo-arc` on pushes to `main` or manual
 runs against `main`. Each build publishes the seven-character commit SHA and
 `latest` tags. Pull requests build the image without logging in or pushing.
 
 Add a repository Actions secret named `REGISTRY_TOKEN` containing a personal
 access token for `shailesh` with `write:package` permission. The workflow logs in
-as the repository owner. The `dind` runner must provide a working Docker CLI and
-daemon; the workflow sets up Buildx. The OCI source label associates the image
+as the repository owner. The Minikube runner pool exposes its per-worker Docker
+socket; the workflow installs the Docker CLI and sets up Buildx. The OCI source label associates the image
 with this repository in Forgejo's package registry.
 
 ```sh
@@ -40,6 +40,9 @@ docker pull git.shailesh.live/shailesh/forgejo-arc:latest
 For bootstrapping through Helm, set `image.repository` to
 `git.shailesh.live/shailesh/forgejo-arc` and `image.tag` to the published commit
 tag. Configure the chart's `imagePullSecrets` if the package is private.
+
+See [Minikube bootstrap](docs/minikube-bootstrap.md) to connect the local cluster
+to this repository and run the publishing workflow on ephemeral workers.
 
 ### Local builds
 
@@ -120,13 +123,13 @@ Install the published OCI chart for a fresh installation:
 ```sh
 helm upgrade --install forgejo-arc \
   oci://git.shailesh.live/shailesh/charts/forgejo-arc \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --namespace forgejo-arc --create-namespace \
   --wait
 ```
 
-Chart `0.1.0` defaults to controller image
-`git.shailesh.live/shailesh/forgejo-arc:fccaf1a`. For private packages, log in with
+Chart `0.1.1` defaults to controller image
+`git.shailesh.live/shailesh/forgejo-arc:c5b1a70`. For private packages, log in with
 `helm registry login git.shailesh.live` to download the chart and configure
 `imagePullSecrets` for Kubernetes to pull the controller image.
 

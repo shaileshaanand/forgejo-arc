@@ -2,6 +2,6 @@ apiVersion: v2
 name: forgejo-arc
 description: Ephemeral, autoscaling Kubernetes runners for Forgejo Actions
 type: application
-version: 0.1.0
-appVersion: fccaf1a
+version: 0.1.1
+appVersion: c5b1a70
 kubeVersion: '>=1.33.0-0'

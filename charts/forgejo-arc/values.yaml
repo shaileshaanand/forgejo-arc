@@ -1,7 +1,7 @@
 replicaCount: 1
 image:
   repository: git.shailesh.live/shailesh/forgejo-arc
-  tag: 'fccaf1a'
+  tag: 'c5b1a70'
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 resources:
