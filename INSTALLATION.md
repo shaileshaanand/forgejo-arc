@@ -41,9 +41,26 @@ The published chart is:
 oci://git.shailesh.live/shailesh/charts/forgejo-arc
 ```
 
-Chart **0.1.1** defaults to controller image
-`git.shailesh.live/shailesh/forgejo-arc:c5b1a70` and includes the opt-in
-`dockerSocket` setting used for image builds.
+Chart **0.1.2** includes the controller image repository and release tag:
+
+```yaml
+image:
+  repository: git.shailesh.live/shailesh/forgejo-arc
+  tag: 0.1.2
+```
+
+Its chart `version` and `appVersion` are also `0.1.2`. Selecting chart version
+`0.1.2` therefore deploys `git.shailesh.live/shailesh/forgejo-arc:0.1.2`
+automatically. **Do not add image overrides for a normal release installation.**
+Use overrides only for a custom build or registry mirror. This chart includes
+the opt-in `dockerSocket` setting used for image builds.
+
+You can inspect the published defaults directly:
+
+```sh
+helm show chart oci://git.shailesh.live/shailesh/charts/forgejo-arc --version 0.1.2
+helm show values oci://git.shailesh.live/shailesh/charts/forgejo-arc --version 0.1.2
+```
 
 For a new local cluster with capacity for the example tiers:
 
@@ -59,7 +76,7 @@ capacity before choosing pool requests, limits, and concurrency:
 export KUBE_CONTEXT=forgejo-arc
 export ARC_NAMESPACE=forgejo-arc
 export ARC_RELEASE=forgejo-arc-controller
-export CHART_VERSION=0.1.1
+export CHART_VERSION=0.1.2
 export ARC_CHART=oci://git.shailesh.live/shailesh/charts/forgejo-arc
 
 kubectl --context "$KUBE_CONTEXT" get nodes
@@ -465,10 +482,6 @@ Create `arc-values.yaml`:
 
 ```yaml
 replicaCount: 1
-image:
-  repository: git.shailesh.live/shailesh/forgejo-arc
-  tag: c5b1a70
-  pullPolicy: IfNotPresent
 imagePullSecrets:
   - name: forgejo-registry
 resources:
@@ -478,6 +491,7 @@ metrics:
   enabled: true
 ```
 
+The image repository, version tag, and pull policy come from the selected chart.
 These `resources` size the controller only; runner sizing is in section 4.
 Apply the CRD explicitly, then install the published chart:
 
@@ -672,8 +686,8 @@ prefix is preserved: a `v0.1.2` Git tag produces image `:v0.1.2` and chart versi
 `v0.1.2`, selected with `helm ... --version v0.1.2` or Argo CD
 `targetRevision: v0.1.2`. `latest` follows the most recently published image tag,
 including prereleases. The release only publishes artifacts; it does not deploy
-them. When upgrading, remove the bootstrap `image.tag: c5b1a70` override or update
-it to the release tag so the chart's matching image is used.
+them. When upgrading from an older example, remove explicit `image.repository`
+and `image.tag` overrides so the chart's matching image is used.
 The current repository
 workflow uses `arc-minikube`, served by
 [`config/samples/minikube-build-pool.yaml`](config/samples/minikube-build-pool.yaml).
@@ -819,15 +833,12 @@ spec:
   sources:
     - repoURL: git.shailesh.live/shailesh/charts
       chart: forgejo-arc
-      targetRevision: 0.1.1
+      targetRevision: 0.1.2
       helm:
         releaseName: forgejo-arc-controller
         skipCrds: false
         values: |
           replicaCount: 1
-          image:
-            repository: git.shailesh.live/shailesh/forgejo-arc
-            tag: c5b1a70
           imagePullSecrets:
             - name: forgejo-registry
           resources:
@@ -851,6 +862,11 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 ```
+
+The chart source's `targetRevision: 0.1.2` selects both the chart release and its
+default controller image `git.shailesh.live/shailesh/forgejo-arc:0.1.2`. No Helm
+image parameters or values are needed. Change that chart `targetRevision` to
+upgrade to another release and its matching image.
 
 Keep the Application name and Helm release name equal; this chart uses
 `app.kubernetes.io/instance` selectors. The `default` AppProject must permit both
@@ -908,11 +924,15 @@ name/release name `forgejo-arc-controller`, chart version, and current values:
 ### Upgrade or resize
 
 - **Helm CLI:** choose the new chart version, apply that version's CRDs, then run
-  `helm upgrade --install` with your values. Pin controller image tags rather than
-  relying on `latest`.
-- **Argo CD:** update chart `targetRevision` and any image override in Git, then
-  sync. The example pins both; changing just the chart version leaves an explicit
-  image override in place.
+  `helm upgrade --install` with your values. The versioned chart supplies its
+  matching image tag; there is no need to track `latest` or set the tag separately.
+  If a previous release saved an explicit image override, remove it from your
+  values file and use `--reset-values --values arc-values.yaml` with the upgrade,
+  including all other custom settings you want to retain in that values file.
+- **Argo CD:** update the chart source's `targetRevision` in Git, then sync. The
+  example inherits the image defaults from that chart. Remove any old image
+  overrides from Helm parameters, inline values, and external values files;
+  explicit overrides take precedence over the new chart's defaults.
 - **Pools:** edit and apply/sync `resources`, `dockerResources`, `maxRunners`, or
   placement settings. Existing workers keep their snapshots. Scaling the
   controller Deployment does not change worker concurrency.

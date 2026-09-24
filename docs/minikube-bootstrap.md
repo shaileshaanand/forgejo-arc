@@ -21,14 +21,17 @@ permission. Keep this Secret available while the pool drains or is deleted.
 For private controller images, create a `forgejo-registry` Docker registry
 Secret in the same namespace with credentials for `git.shailesh.live`.
 
-Install the OCI chart, applying its CRDs explicitly for upgrades:
+Chart `0.1.2` includes image repository
+`git.shailesh.live/shailesh/forgejo-arc` and image tag `0.1.2`; its chart version
+and `appVersion` are also `0.1.2`. No image override is needed. Install the OCI
+chart, applying its CRDs explicitly for upgrades:
 
 ```sh
-helm show crds oci://git.shailesh.live/shailesh/charts/forgejo-arc --version 0.1.1 |
+helm show crds oci://git.shailesh.live/shailesh/charts/forgejo-arc --version 0.1.2 |
   kubectl --context forgejo-arc apply -f -
 helm upgrade --install forgejo-arc-controller \
   oci://git.shailesh.live/shailesh/charts/forgejo-arc \
-  --version 0.1.1 --kube-context forgejo-arc \
+  --version 0.1.2 --kube-context forgejo-arc \
   --namespace forgejo-arc --create-namespace \
   --set 'imagePullSecrets[0].name=forgejo-registry' --wait
 kubectl --context forgejo-arc apply -f config/samples/minikube-build-pool.yaml
@@ -66,5 +69,7 @@ kubectl --context forgejo-arc -n forgejo-arc logs deploy/forgejo-arc-controller
 ```
 
 The local machine and Minikube profile must be running for jobs to execute.
-The published chart pins the bootstrap controller image; subsequent workflow
-builds publish images without automatically upgrading the running controller.
+Each published release chart pins its matching controller image. Subsequent tag
+releases publish new images/charts without automatically upgrading the running
+controller. Upgrade the Helm chart version to deploy the corresponding image;
+remove any previously configured image overrides first.

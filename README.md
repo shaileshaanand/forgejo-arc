@@ -70,9 +70,9 @@ with this repository in Forgejo's package registry.
 docker pull git.shailesh.live/shailesh/forgejo-arc:latest
 ```
 
-For bootstrapping through Helm, set `image.repository` to
-`git.shailesh.live/shailesh/forgejo-arc` and `image.tag` to the published commit
-tag. Configure the chart's `imagePullSecrets` if the package is private.
+Published release charts already contain the image repository and matching
+version tag. Select the chart version; no `image.repository` or `image.tag`
+override is needed. Configure `imagePullSecrets` if the package is private.
 
 See [Minikube bootstrap](docs/minikube-bootstrap.md) to connect the local cluster
 to this repository and run the publishing workflow on ephemeral workers.
@@ -156,13 +156,15 @@ Install the published OCI chart for a fresh installation:
 ```sh
 helm upgrade --install forgejo-arc \
   oci://git.shailesh.live/shailesh/charts/forgejo-arc \
-  --version 0.1.1 \
+  --version 0.1.2 \
   --namespace forgejo-arc --create-namespace \
   --wait
 ```
 
-Chart `0.1.1` defaults to controller image
-`git.shailesh.live/shailesh/forgejo-arc:c5b1a70`. For private packages, log in with
+Chart `0.1.2` includes `image.repository: git.shailesh.live/shailesh/forgejo-arc`
+and `image.tag: 0.1.2`; its chart version and `appVersion` are also `0.1.2`.
+Installing that chart uses `git.shailesh.live/shailesh/forgejo-arc:0.1.2`
+automatically. For private packages, log in with
 `helm registry login git.shailesh.live` to download the chart and configure
 `imagePullSecrets` for Kubernetes to pull the controller image.
 
@@ -176,8 +178,8 @@ helm upgrade --install forgejo-arc charts/forgejo-arc \
   --wait
 ```
 
-For a remote cluster, set `image.repository` and `image.tag` to an image available
-to its nodes. The chart can run multiple controller replicas with one elected
+Override `image.repository` and `image.tag` only for a custom image or registry
+mirror. The chart can run multiple controller replicas with one elected
 leader. Install one release per cluster. CRDs are included for installation;
 before upgrading the chart, apply `charts/forgejo-arc/crds/` explicitly because
 Helm does not upgrade CRDs in its `crds/` directory.
