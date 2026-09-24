@@ -28,7 +28,9 @@ workflow routing, upgrades, and removal.
 
 ### CI and tagged releases
 
-The [CI workflow](.forgejo/workflows/publish.yaml) runs on `arc-minikube`.
+The [CI workflow](.forgejo/workflows/publish.yaml) runs on the production
+`debian-large` pool for both checks and releases. Its larger memory budget
+supports race-enabled Go tests and container builds.
 Every branch push, pull request targeting `main`, and manual run checks Go
 formatting, race-enabled tests, `go vet`, Helm lint/rendering, and generated files.
 Container images are built and published **only on Git tag pushes**, after those
@@ -62,7 +64,7 @@ chart under the repository owner. Tag releases do not upgrade running clusters.
 
 Add a repository Actions secret named `REGISTRY_TOKEN` containing a personal
 access token for `shailesh` with `write:package` permission. The workflow logs in
-as the repository owner. The Minikube runner pool exposes its per-worker Docker
+as the repository owner. The production runner pool exposes its per-worker Docker
 socket; the workflow installs the Docker CLI and sets up Buildx. The OCI source label associates the image
 with this repository in Forgejo's package registry.
 
@@ -74,8 +76,8 @@ Published release charts already contain the image repository and matching
 version tag. Select the chart version; no `image.repository` or `image.tag`
 override is needed. Configure `imagePullSecrets` if the package is private.
 
-See [Minikube bootstrap](docs/minikube-bootstrap.md) to connect the local cluster
-to this repository and run the publishing workflow on ephemeral workers.
+See [Minikube bootstrap](docs/minikube-bootstrap.md) for local runner setup and
+instructions for routing the workflow back to Minikube for development.
 
 ### Local builds
 

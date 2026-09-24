@@ -16,7 +16,7 @@ env:
 jobs:
   checks:
     name: Tests and lint
-    runs-on: arc-minikube
+    runs-on: debian-large
     timeout-minutes: 30
     steps:
       - name: Install build tools
@@ -59,7 +59,7 @@ jobs:
     name: Release image and Helm chart
     needs: [checks]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    runs-on: arc-minikube
+    runs-on: debian-large
     timeout-minutes: 30
     steps:
       - name: Install Docker CLI

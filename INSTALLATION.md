@@ -688,10 +688,9 @@ prefix is preserved: a `v0.1.2` Git tag produces image `:v0.1.2` and chart versi
 including prereleases. The release only publishes artifacts; it does not deploy
 them. When upgrading from an older example, remove explicit `image.repository`
 and `image.tag` overrides so the chart's matching image is used.
-The current repository
-workflow uses `arc-minikube`, served by
-[`config/samples/minikube-build-pool.yaml`](config/samples/minikube-build-pool.yaml).
-Creating the Debian pools alone does not change that workflow's routing.
+The current repository workflow uses the production `debian-large` pool for both
+checks and releases. For local development, change both jobs to `arc-minikube`,
+served by [`config/samples/minikube-build-pool.yaml`](config/samples/minikube-build-pool.yaml).
 
 Inspect workers and status:
 

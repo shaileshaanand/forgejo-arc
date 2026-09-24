@@ -4,6 +4,10 @@ The `forgejo-arc-build` RunnerPool connects to
 `https://git.shailesh.live/shailesh/forgejo-arc` and serves `runs-on: arc-minikube`.
 It launches at most one ephemeral worker and scales to zero between builds.
 
+The repository workflow now runs on the production `debian-large` pool. To test
+on this local pool instead, change both jobs' `runs-on` in
+`.forgejo/workflows/publish.yaml` to `arc-minikube` before triggering a run.
+
 ## Controller installation
 
 Start the local profile and log in to the registry if its packages are private:
