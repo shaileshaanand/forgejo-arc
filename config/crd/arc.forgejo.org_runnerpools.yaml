@@ -1028,6 +1028,11 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
+              dockerSocket:
+                description: |-
+                  DockerSocket exposes the per-worker Docker daemon to workflow containers.
+                  Only used in Docker mode; the Kubernetes node's socket is never mounted.
+                type: boolean
               forgejoURL:
                 description: ForgejoURL includes any installation subpath.
                 pattern: ^https?://

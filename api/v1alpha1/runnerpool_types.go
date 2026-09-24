@@ -47,6 +47,9 @@ type RunnerPoolSpec struct {
 	// +kubebuilder:default=Host
 	// +kubebuilder:validation:Enum=Host;Docker
 	Mode string `json:"mode,omitempty"`
+	// DockerSocket exposes the per-worker Docker daemon to workflow containers.
+	// Only used in Docker mode; the Kubernetes node's socket is never mounted.
+	DockerSocket bool `json:"dockerSocket,omitempty"`
 	// JobImage is the default workflow image in Docker mode.
 	// +kubebuilder:default="docker.io/library/node:22-bookworm-slim"
 	JobImage string `json:"jobImage,omitempty"`

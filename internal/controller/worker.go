@@ -108,7 +108,11 @@ func runnerSecret(pool *arc.RunnerPool, name string, runner forgejo.Runner) (*co
 		"server": map[string]any{"connections": map[string]any{"forgejo": map[string]any{"url": pool.Spec.ForgejoURL, "uuid": runner.UUID, "token": runner.Token, "labels": labels}}},
 	}
 	if pool.Spec.Mode == "Docker" {
-		config["container"] = map[string]any{"docker_host": "-"}
+		dockerHost := "-"
+		if pool.Spec.DockerSocket {
+			dockerHost = "unix:///run/forgejo-docker/docker.sock"
+		}
+		config["container"] = map[string]any{"docker_host": dockerHost}
 	}
 	data, err := yaml.Marshal(config)
 	if err != nil {

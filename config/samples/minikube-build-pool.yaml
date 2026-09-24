@@ -1,0 +1,24 @@
+apiVersion: arc.forgejo.org/v1alpha1
+kind: RunnerPool
+metadata:
+  name: forgejo-arc-build
+  namespace: forgejo-arc
+spec:
+  forgejoURL: https://git.shailesh.live
+  scope: {type: Repository, name: shailesh/forgejo-arc}
+  credentialsSecret: forgejo-live-credentials
+  labels: [arc-minikube]
+  maxRunners: 1
+  mode: Docker
+  dockerSocket: true
+  jobImage: docker.io/library/node:22-bookworm-slim
+  dockerImage: docker.io/library/docker:28.5.2-dind
+  startupTimeoutSeconds: 600
+  jobTimeoutSeconds: 2400
+  pollIntervalSeconds: 5
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  dockerResources:
+    requests: {cpu: '1', memory: 1Gi}
+    limits: {cpu: '2', memory: 4Gi}

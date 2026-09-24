@@ -29,4 +29,14 @@ func addDocker(pool *arc.RunnerPool, pod *corev1.PodSpec) {
 	})
 	pod.Volumes = append(pod.Volumes, corev1.Volume{Name: "docker-data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 	pod.Containers[0].Env = append(pod.Containers[0].Env, corev1.EnvVar{Name: "DOCKER_HOST", Value: "tcp://127.0.0.1:2375"})
+	if pool.Spec.DockerSocket {
+		// The runner connects through this socket and mounts it from the DinD
+		// filesystem into job containers at /var/run/docker.sock.
+		mount := corev1.VolumeMount{Name: "docker-socket", MountPath: "/run/forgejo-docker"}
+		sidecar := &pod.InitContainers[len(pod.InitContainers)-1]
+		sidecar.Args = append(sidecar.Args, "--host=unix:///run/forgejo-docker/docker.sock", "--group=1000")
+		sidecar.VolumeMounts = append(sidecar.VolumeMounts, mount)
+		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts, mount)
+		pod.Volumes = append(pod.Volumes, corev1.Volume{Name: "docker-socket", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+	}
 }
