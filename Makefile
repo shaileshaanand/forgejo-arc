@@ -2,11 +2,14 @@ IMAGE ?= forgejo-arc:dev
 PROFILE ?= forgejo-arc
 KUBECTL ?= kubectl --context=$(PROFILE)
 
-.PHONY: generate test build image install deploy minikube e2e chart
+.PHONY: generate lint test build image install deploy minikube e2e chart
 generate:
 	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0 object crd paths=./api/... output:crd:artifacts:config=config/crd
 	mkdir -p charts/forgejo-arc/crds
 	cp config/crd/*.yaml charts/forgejo-arc/crds/
+lint:
+	@set -eu; unformatted="$$(gofmt -l $$(git ls-files '*.go'))"; \
+	if [ -n "$$unformatted" ]; then printf 'Run gofmt on:\n%s\n' "$$unformatted"; exit 1; fi
 test:
 	go test -race ./...
 	go vet ./...

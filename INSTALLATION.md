@@ -87,7 +87,7 @@ These credentials serve different consumers:
 | `forgejo-registry` | Controller/worker namespace; `kubernetes.io/dockerconfigjson` Secret | `.dockerconfigjson` | Kubernetes image pulls; PAT with `read:package` and access to the package |
 | `forgejo-arc-chart-repository` | `argocd`; repository Secret | `type`, `url`, `enableOCI`, `username`, `password` | Argo CD downloads the OCI chart; PAT with `read:package` |
 | `forgejo-arc-git-repository` | `argocd`; repository Secret | `type`, `url`, `username`, `password` | Argo CD reads private pool manifests from Git; PAT with `read:repository` |
-| `REGISTRY_TOKEN` | Forgejo repository Actions secret | PAT value | Workflow publishes container images; `write:package` for the package owner |
+| `REGISTRY_TOKEN` | Forgejo repository Actions secret | PAT value | Tag-release workflow publishes container images and Helm charts; `write:package` for the package owner |
 
 The controller generates a separate, owned Secret with ephemeral credentials for
 each worker. You do not create runner registration tokens manually.
@@ -163,7 +163,8 @@ build/push operations. The default pool job image in this guide is public.
 In Forgejo, open the repository's **Settings → Actions → Secrets** and add
 `REGISTRY_TOKEN` with a PAT that has `write:package`. The publishing workflow
 logs in as `${{ github.repository_owner }}`, so this token must belong to the
-package owner (`shailesh` here). A read-only image-pull token cannot publish.
+package owner (`shailesh` here). This token publishes both the container image
+and OCI Helm chart on tag pushes. A read-only image-pull token cannot publish.
 
 For GitOps-managed Secrets, use your existing External Secrets, Sealed Secrets,
 or SOPS integration to produce the same names, types, and keys. Supply Argo CD's
@@ -655,8 +656,25 @@ on demand.
 
 To build and publish container images on the large tier, use
 [`.forgejo/workflows/publish.yaml`](.forgejo/workflows/publish.yaml) and set its
-`runs-on` to `debian-large`. Its steps install Docker CLI, set up Buildx, log in
-using `REGISTRY_TOKEN`, and push commit/latest image tags. The current repository
+`runs-on` on both jobs to `debian-large`. Branch pushes, pull requests targeting
+`main`, and manual runs perform formatting, race-enabled tests, `go vet`, Helm
+lint/rendering, and generated-file checks. **Only Git tag pushes** build and
+publish the image, after those checks succeed. The image job installs Docker CLI,
+sets up Buildx, logs in using `REGISTRY_TOKEN`, and publishes the Git tag, short
+commit SHA, and `latest`. After the image push succeeds, it publishes an OCI
+Helm chart at `oci://git.shailesh.live/shailesh/charts/forgejo-arc` with the exact
+Git tag as its `version`, `appVersion`, and default `image.tag`. The packaged
+`image.repository` is `git.shailesh.live/shailesh/forgejo-arc`.
+
+Use version tags such as `v0.1.2`, `0.1.2`, or `v0.1.2-rc.1`; both Helm and Docker
+must accept the tag, so slashes and `+build` metadata are not supported. The `v`
+prefix is preserved: a `v0.1.2` Git tag produces image `:v0.1.2` and chart version
+`v0.1.2`, selected with `helm ... --version v0.1.2` or Argo CD
+`targetRevision: v0.1.2`. `latest` follows the most recently published image tag,
+including prereleases. The release only publishes artifacts; it does not deploy
+them. When upgrading, remove the bootstrap `image.tag: c5b1a70` override or update
+it to the release tag so the chart's matching image is used.
+The current repository
 workflow uses `arc-minikube`, served by
 [`config/samples/minikube-build-pool.yaml`](config/samples/minikube-build-pool.yaml).
 Creating the Debian pools alone does not change that workflow's routing.

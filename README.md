@@ -26,12 +26,39 @@ workflow routing, upgrades, and removal.
 
 ## Development
 
-### Published controller image
+### CI and tagged releases
 
-The [container workflow](.forgejo/workflows/publish.yaml) runs on `arc-minikube` and
-publishes to `git.shailesh.live/shailesh/forgejo-arc` on pushes to `main` or manual
-runs against `main`. Each build publishes the seven-character commit SHA and
-`latest` tags. Pull requests build the image without logging in or pushing.
+The [CI workflow](.forgejo/workflows/publish.yaml) runs on `arc-minikube`.
+Every branch push, pull request targeting `main`, and manual run checks Go
+formatting, race-enabled tests, `go vet`, Helm lint/rendering, and generated files.
+Container images are built and published **only on Git tag pushes**, after those
+same checks pass. Each release publishes the Git tag, seven-character commit SHA,
+and `latest` to `git.shailesh.live/shailesh/forgejo-arc`. Once the image push
+succeeds, it publishes the matching Helm chart to
+`oci://git.shailesh.live/shailesh/charts/forgejo-arc`.
+
+Use version tags such as `v0.1.2`, `0.1.2`, or `v0.1.2-rc.1`. They must be valid
+Helm versions and Docker tags (no slashes or `+build` metadata). The exact tag,
+including any `v` prefix, becomes the chart's `version`, `appVersion`, and default
+`image.tag`; its `image.repository` is `git.shailesh.live/shailesh/forgejo-arc`.
+The packaged chart is staged separately from the source chart. `latest` points
+to the most recently published image tag, including prereleases. For example:
+
+```sh
+git tag -a v0.1.2 -m 'Release v0.1.2'
+git push origin v0.1.2
+```
+
+After that release succeeds, install its matching chart and image with:
+
+```sh
+helm upgrade --install forgejo-arc-controller \
+  oci://git.shailesh.live/shailesh/charts/forgejo-arc --version v0.1.2 \
+  --namespace forgejo-arc --create-namespace --wait
+```
+
+The workflow's `REGISTRY_TOKEN` needs package-write access for both the image and
+chart under the repository owner. Tag releases do not upgrade running clusters.
 
 Add a repository Actions secret named `REGISTRY_TOKEN` containing a personal
 access token for `shailesh` with `write:package` permission. The workflow logs in
@@ -53,7 +80,7 @@ to this repository and run the publishing workflow on ephemeral workers.
 ### Local builds
 
 ```sh
-make generate test build
+make generate lint test build
 make minikube
 IMAGE="forgejo-arc:local-$(date +%s)"
 make image IMAGE="$IMAGE"

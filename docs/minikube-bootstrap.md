@@ -49,11 +49,16 @@ into workflow containers at `/var/run/docker.sock`. This is the worker daemon,
 not the Kubernetes node's daemon. Socket access is disabled by default in other
 pools.
 
-The workflow installs Docker CLI in its Debian/Node job container, bootstraps
-Buildx, builds the controller, and publishes the short commit tag and `latest` on
-pushes to `main`. It uses the repository's `REGISTRY_TOKEN` Actions secret with
-`write:package` permission. Pull requests build without publishing. Chart releases
-are packaged and pushed separately.
+On branch pushes, pull requests targeting `main`, and manual runs, the workflow
+checks formatting, race-enabled tests, `go vet`, Helm lint/rendering, and generated
+files. Git tag pushes run those checks, then a dependent image job installs Docker
+CLI, bootstraps Buildx, and builds/publishes the controller with the Git tag, short
+commit SHA, and `latest`. After the image push, it publishes an OCI Helm chart
+with `version`, `appVersion`, and `image.tag` equal to that exact Git tag, and
+`image.repository` set to `git.shailesh.live/shailesh/forgejo-arc`. It uses the
+repository's `REGISTRY_TOKEN` Actions secret with `write:package` permission for
+both artifacts. Only tag pushes build container images and publish charts. Use
+version tags such as `v0.1.2` or `v0.1.2-rc.1`, without `+build` metadata.
 
 ```sh
 kubectl --context forgejo-arc -n forgejo-arc get runnerpools,jobs,pods
