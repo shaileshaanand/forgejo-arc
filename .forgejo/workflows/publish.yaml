@@ -29,18 +29,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Go 1.25.8
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 \
-            https://go.dev/dl/go1.25.8.linux-amd64.tar.gz -o /tmp/go.tar.gz
-          echo 'ceb5e041bbc3893846bd1614d76cb4681c91dadee579426cf21a63f2d7e03be6  /tmp/go.tar.gz' | sha256sum -c -
-          mkdir -p /opt/go-toolchain
-          tar -xzf /tmp/go.tar.gz -C /opt/go-toolchain
-          rm /tmp/go.tar.gz
-          echo '/opt/go-toolchain/go/bin' >> "$GITHUB_PATH"
-          /opt/go-toolchain/go/bin/go version
+      - name: Set up Go
+        uses: https://github.com/actions/setup-go@v5
+        with:
+          go-version: '1.25.8'
+          # GitHub's cache service is not available on Forgejo.
+          cache: false
 
       - name: Set up Helm
         uses: https://github.com/Azure/setup-helm@v4

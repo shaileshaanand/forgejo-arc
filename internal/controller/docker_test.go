@@ -23,6 +23,11 @@ func TestDockerSidecarIsolationAndTermination(t *testing.T) {
 	if pod.InitContainers[0].StartupProbe == nil {
 		t.Fatal("runner must wait for Docker readiness")
 	}
+	if len(pod.InitContainers[0].Command) != 2 || pod.InitContainers[0].Command[0] != "sh" ||
+		!strings.Contains(pod.InitContainers[0].Args[0], "--mtu=\"$(cat /sys/class/net/eth0/mtu)\"") ||
+		!strings.Contains(pod.InitContainers[0].Args[0], "exec dockerd-entrypoint.sh dockerd") {
+		t.Fatal("DinD must inherit the pod network MTU while retaining its entrypoint")
+	}
 	for _, volume := range pod.Volumes {
 		if volume.HostPath != nil {
 			t.Fatal("worker must not mount host paths")

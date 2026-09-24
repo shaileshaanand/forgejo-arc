@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"strings"
+
 	arc "forgejo-arc/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -16,11 +18,21 @@ func addDocker(pool *arc.RunnerPool, pod *corev1.PodSpec) {
 	if resources.Requests == nil {
 		resources.Requests = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("256Mi")}
 	}
+	// Docker's default 1500-byte bridge MTU can exceed the pod network MTU
+	// (e.g. 1450 on Flannel VXLAN). Nested containers then hang on large TLS
+	// packets. Read the pod interface MTU before starting dockerd so all Docker
+	// networks created for this worker use an MTU the pod can actually send.
+	args := []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock", "--tls=false", "--storage-driver=overlay2"}
+	if pool.Spec.DockerSocket {
+		args = append(args, "--host=unix:///run/forgejo-docker/docker.sock", "--group=1000")
+	}
+	args = append(args, "--mtu=\"$(cat /sys/class/net/eth0/mtu)\"")
 	pod.InitContainers = append(pod.InitContainers, corev1.Container{
 		Name: "docker", Image: image, ImagePullPolicy: corev1.PullIfNotPresent,
 		// A native sidecar is stopped automatically after the runner exits.
 		RestartPolicy:   ptr.To(corev1.ContainerRestartPolicyAlways),
-		Args:            []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock", "--tls=false", "--storage-driver=overlay2"},
+		Command:         []string{"sh", "-ec"},
+		Args:            []string{"exec dockerd-entrypoint.sh " + strings.Join(args, " ")},
 		Env:             []corev1.EnvVar{{Name: "DOCKER_TLS_CERTDIR", Value: ""}},
 		SecurityContext: &corev1.SecurityContext{Privileged: ptr.To(true), RunAsUser: ptr.To(int64(0)), RunAsGroup: ptr.To(int64(0)), RunAsNonRoot: ptr.To(false)},
 		Resources:       resources,
@@ -34,7 +46,6 @@ func addDocker(pool *arc.RunnerPool, pod *corev1.PodSpec) {
 		// filesystem into job containers at /var/run/docker.sock.
 		mount := corev1.VolumeMount{Name: "docker-socket", MountPath: "/run/forgejo-docker"}
 		sidecar := &pod.InitContainers[len(pod.InitContainers)-1]
-		sidecar.Args = append(sidecar.Args, "--host=unix:///run/forgejo-docker/docker.sock", "--group=1000")
 		sidecar.VolumeMounts = append(sidecar.VolumeMounts, mount)
 		pod.Containers[0].VolumeMounts = append(pod.Containers[0].VolumeMounts, mount)
 		pod.Volumes = append(pod.Volumes, corev1.Volume{Name: "docker-socket", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
