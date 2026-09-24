@@ -25,6 +25,7 @@ func TestDockerSidecarIsolationAndTermination(t *testing.T) {
 	}
 	if len(pod.InitContainers[0].Command) != 2 || pod.InitContainers[0].Command[0] != "sh" ||
 		!strings.Contains(pod.InitContainers[0].Args[0], "--mtu=\"$(cat /sys/class/net/eth0/mtu)\"") ||
+		!strings.Contains(pod.InitContainers[0].Args[0], "--default-network-opt=bridge=com.docker.network.driver.mtu=\"$(cat /sys/class/net/eth0/mtu)\"") ||
 		!strings.Contains(pod.InitContainers[0].Args[0], "exec dockerd-entrypoint.sh dockerd") {
 		t.Fatal("DinD must inherit the pod network MTU while retaining its entrypoint")
 	}

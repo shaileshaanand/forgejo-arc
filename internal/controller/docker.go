@@ -20,13 +20,14 @@ func addDocker(pool *arc.RunnerPool, pod *corev1.PodSpec) {
 	}
 	// Docker's default 1500-byte bridge MTU can exceed the pod network MTU
 	// (e.g. 1450 on Flannel VXLAN). Nested containers then hang on large TLS
-	// packets. Read the pod interface MTU before starting dockerd so all Docker
-	// networks created for this worker use an MTU the pod can actually send.
+	// packets. The --mtu flag covers the default bridge; --default-network-opt
+	// also covers user-defined bridges (Forgejo creates one for each workflow).
+	// Read the pod interface MTU so both kinds of network fit inside the pod.
 	args := []string{"dockerd", "--host=tcp://127.0.0.1:2375", "--host=unix:///var/run/docker.sock", "--tls=false", "--storage-driver=overlay2"}
 	if pool.Spec.DockerSocket {
 		args = append(args, "--host=unix:///run/forgejo-docker/docker.sock", "--group=1000")
 	}
-	args = append(args, "--mtu=\"$(cat /sys/class/net/eth0/mtu)\"")
+	args = append(args, "--mtu=\"$(cat /sys/class/net/eth0/mtu)\"", "--default-network-opt=bridge=com.docker.network.driver.mtu=\"$(cat /sys/class/net/eth0/mtu)\"")
 	pod.InitContainers = append(pod.InitContainers, corev1.Container{
 		Name: "docker", Image: image, ImagePullPolicy: corev1.PullIfNotPresent,
 		// A native sidecar is stopped automatically after the runner exits.
