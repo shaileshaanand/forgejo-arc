@@ -18,6 +18,12 @@ attempts across pools/namespaces. Overlapping pools can share demand: an existin
 worker claim prevents another pool from launching the same attempt. Use the same
 canonical Forgejo URL in all pools for a server.
 
+## Installation
+
+See [INSTALLATION.md](INSTALLATION.md) for the complete Kubernetes and Argo CD
+setup, required Secrets, `debian-small` / `debian-large` resource-tier pools,
+workflow routing, upgrades, and removal.
+
 ## Development
 
 ### Published controller image
