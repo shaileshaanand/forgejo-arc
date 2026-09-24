@@ -20,6 +20,29 @@ canonical Forgejo URL in all pools for a server.
 
 ## Development
 
+### Published controller image
+
+The [container workflow](.forgejo/workflows/publish.yaml) runs on `dind` and
+publishes to `git.shailesh.live/shailesh/forgejo-arc` on pushes to `main` or manual
+runs against `main`. Each build publishes the seven-character commit SHA and
+`latest` tags. Pull requests build the image without logging in or pushing.
+
+Add a repository Actions secret named `REGISTRY_TOKEN` containing a personal
+access token for `shailesh` with `write:package` permission. The workflow logs in
+as the repository owner. The `dind` runner must provide a working Docker CLI and
+daemon; the workflow sets up Buildx. The OCI source label associates the image
+with this repository in Forgejo's package registry.
+
+```sh
+docker pull git.shailesh.live/shailesh/forgejo-arc:latest
+```
+
+For bootstrapping through Helm, set `image.repository` to
+`git.shailesh.live/shailesh/forgejo-arc` and `image.tag` to the published commit
+tag. Configure the chart's `imagePullSecrets` if the package is private.
+
+### Local builds
+
 ```sh
 make generate test build
 make minikube
